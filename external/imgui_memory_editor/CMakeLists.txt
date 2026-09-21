@@ -1,0 +1,6 @@
+add_library(imgui_hex_editor INTERFACE)
+
+target_include_directories(imgui_hex_editor 
+    INTERFACE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+)

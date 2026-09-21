@@ -1,0 +1,8 @@
+build/
+learning/
+tests/out.txt
+tests/ROMS/
+*.xopp
+lib/
+bin/
+imgui.ini

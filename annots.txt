@@ -1,0 +1,116 @@
+Componentes:
+    Registradores:
+        X - índice (8 bits)
+        Y - índice (8 bits)
+        A/ACC - Acumulador (8 bits)
+        IR - Instruction Register (8 bits)
+        Status - Status (8 bits)
+        SP - Stack Pointer (8 bits) - Indica o byte de BAIXA ORDEM do endereço da pilha (que está sempre na página 1)
+        PC - Program Counter (16 bits, dividido em PCL e PCH)
+            PCL - Program Counter Low (8 bits) 
+            PCH - Program Counter High (8 bits)
+
+    Buffer de barramento de dados (8 bits)
+    Stack de 256 bytes - localizada na página 1 (endereços 0x01XX)
+
+Execution cycle:
+    Determine what instruction it is going to run
+    Read that instruction
+    Decode it so it knows what to do
+    Do the requested action
+    Repeat
+
+Vetores de memória
+    Os últimos 6 bytes da memória do 6502 apontam para endereços importantes:
+    0xFFFA e 0xFFFB - Vetor de NMI - Vetor de tratamento de interrupções não-mascaráveis (?)
+    0xFFFC e 0xFFFD - Vetor de RESET - Endereço inicial do programa. A primeira coisa que a CPU faz ao iniciar é definir o PC para o valor armazenado nesses endereços 
+    0xFFFE e 0xFFFF - Vetor de IRQ e BRK - Vetor de tratamento de interrupções mascaráveis (?)
+
+Opcodes de 1 byte
+"argumentos" logo após
+Divisão de opcodes:
+    AAA BBB CC
+    CC - grupo de instruções
+    AAA - instrução específica
+        0b010 - LDA: load A (carrega em (A)CC)
+    BBB - modo de endereçamento
+        0b001 - zero page
+        0b010 - imediato
+
+Modos de endereçamento do 6502:
+    Imediato - valores logo após opcode
+    Zero page - valor está no endereço 0x00XX, XX é o valor do próximo byte
+    indexado indireto - o valor de X ou Y é somado ao endereço de 16 bits trazido da memória
+    
+Update PC: (essa abordagem funciona segundo 6502 User Manual, página 30)
+    Somar 1 byte do opcode (sempre)
+    Definir a quantidade de bytes X que a instrução ocuparia normalmente    
+    Somar X bytes 
+    Executar a instrução (se for um branch, vai definir o PC pra outro lugar, APÓS X já ter sido somado)
+
+    "Toda vez que uma instrução é executada, o contador de programa é incrementado pelo número de bytes solicitado por esta instrução."
+
+Status Register:
+    76543210
+    NV B IZC
+    N: Negative - 1 se o resultado da última operação for negativo, 0 cc // espelha o bit 7 (sempre, até para operações unsigned)
+    V: oVerflow - 1 se a última operação deu overflow, 0 cc // -128 > resultado > 127 (útil para operações signed, melhor usar carry para unsigned) 
+    B: Break - Se uma interrupção foi chamada por uma instrução de break ou por uma interrupção de hardware (???)
+    I: Interrupts disabled - Caso 1, não atende interrupções mascaráveis
+    Z: Zero - 1 se o resultado da última operação for 0, 0 cc
+    C: Carry - 1 se o resultado da última operação teve carry no bit mais significativo, 0 cc // resultado > 255 (funciona com operações unsigned, melhor usar overflow para signed)
+
+    OBS: Se uma instrução não usa uma flag, ELA PERMANECE INALTERADA
+
+Quirks
+    No page crossing
+        Algumas instruções que lêem endereços de memória não conseguem cruzar páginas.
+        Exemplo: carregar um valor que está no endereço guardado em 0x00FF.
+            O programa lê o byte mais significativo do endereço de 0x00FF;
+            O programa LERIA o byte menos significativo do endereço de 0x0100 PORÉM, ele teria que cruzar da página 00 para a página 01 para isso
+            Como CERTOS MODOS DE ENDEREÇAMENTO não podem fazer page-crossing, o byte menos sigificativo do endereço é lido de 0x0000 (mesma página)
+            Isso era feito para economizar o tempo de verificar um carry 
+
+Memória RAM do NES vai dos endereços 0x0000 a 0x07FF
+
+=============== CARTUCHOS ===============
+Dados do cartucho são divididos entre PRG ROM (program ROM, dados do programa) e CHR ROM (character ROM, dados gráficos)
+Dados do cartucho são mapeados para endereços entre 0x4020 e 0xFFFF.
+A comunidade padronizou IDs diferentes para diferentes estilos de placas de circuito de cartuchos e mappers de memória - mapper IDs. 
+
+Existem diversos mapas de memória entre os cartuchos do NES.
+
+Formato de arquivo INES:
+    Formato de arquivo padrão para dumps de cartuchos de NES (.nes), padronizado pelo emulador INES que desenvolveu o formato.
+    Tem informações sobre parâmetros do cartucho (tamanho de PRG ROM e CHR ROM, por exemplo), além dos dados em si.
+    Arquivo começa com um header de 16 bytes com informações sobre tamanhos e outros dados importantes pra entender o resto do arquivo.
+    Bytes 0 a 3 - são SEMPRE 4e 45 53 1a ('N' 'E' 'S' \1a) - número mágico para identificar o tipo de arquivo.
+    Byte 4 - Tamanho da PRG ROM, em chunks de 16kB
+    Byte 5 - Tamanho da CHR ROM, em chunks de 8kB
+    Byte 6 - "part of the mapper number, as well as how chr rom is connected" (?). "In our file, we have 0 for the byte, which means mapper 0 and CHR mirroring mode 0" (?)
+    Bytes 7 a 15 - resto do header...
+    Bytes 16 em diante, em sequência:
+        Dados da PRG ROM (tamanho definido pelo byte 4)
+        Dados da CHR ROM (tamanho definido pelo byte 5)
+
+
+Mapa NROM (Nintendo's ROM ?) - mapper ID 0:
+    0x8000 a 0xBFFF (16kB) - primeiros 18kB da PRG ROM
+    0xC000 a 0xFFFF (16kB) - últimos 18kB da PRG ROM. Pode só repetir os primeiros 16kB se só tiver 16kB
+    
+Interpretação dos dados da CHR ROM:
+    dcba98 76543210  (bit number)
+    0TNNNN NNNNPyyy  (significance)
+    T: 0 or 1 for table selector
+    N: tile id, 00 - FF
+    P: plane, 0 or 1
+    y: y or row #
+
+
+=============== TIMING =============== 
+"The graphics chip, for example, interrupts the CPU to inform it that the screen has finished drawing, and the CPU is now able to prepare the next frame of graphics." - emulationonline.com
+
+=============== INTERRUPTS =============== 
+"An interrupt causes the CPU to save its progress, and jump to code in another location. When this other code, called the “interrupt handler” is complete, it restores its state and can continue processing where it was before." - emulationonline.com
+
+

@@ -5,743 +5,2990 @@
 #include "mocks.hpp"
 
 #include "commons.hpp"
-#include "CHIP_8/CPU.hpp"
-#include "CHIP_8/RAM.hpp"
-#include "CHIP_8/display.hpp"
+#include "NES/6502.hpp"
+#include "NES/MemoryMapper.hpp"
 
 using namespace std;
 using namespace testing;
 
-
 class CPUTest : public Test {
     protected:
-        sptr<NiceMock<MockRAM>> ram;
-        sptr<NiceMock<MockDisplay>> display;
-        sptr<NiceMock<MockController>> controller;
-        CPU cpu;
-        array<byte_t, 16>* regs;
 
-        // Auxiliary functions to access private members
-        array<byte_t, 16>& getRegs(){return cpu.regs;}
-        array<byte_t, 16>& getRegs(CPU& cpu){return cpu.regs;}
-        stack<addr_t>& getStack(){return cpu.stack;}
         addr_t& getPC(){return cpu.PC;}
-        addr_t& getI(){return cpu.I;}
-        addr_t& getI(CPU& cpu){return cpu.I;}
-        byte_t& getDelayTimer(){return cpu.delayTimer;}
-        byte_t& getSoundTimer(){return cpu.soundTimer;}
-        void setUseLegacyBehavior(){cpu.USE_LEGACY_BEHAVIOR = true;}
+        byte_t& getA(){return cpu.A;}
+        byte_t& getX(){return cpu.X;}
+        byte_t& getY(){return cpu.Y;}
+        byte_t& getIAL(){return cpu.IAL;}
+        byte_t& getIDL(){return cpu.IDL;}
+        byte_t& getAddrL(){return cpu.addrL;}
+        byte_t& getAddrH(){return cpu.addrH;}
+        byte_t& getSP(){return cpu.SP;}
+        byte_t& getStatus(){return cpu.status;}
     
+        sptr<NiceMock<MockMemoryMapper>> memoryMapper;
+        CPU6502 cpu;
     public:
         CPUTest()
-            : ram(make_shared<NiceMock<MockRAM>>()),
-              display(make_shared<NiceMock<MockDisplay>>()),
-              controller(make_shared<NiceMock<MockController>>()),
-              cpu(ram, display, controller, false),
-              regs(&cpu.regs)
-        {
-        }
-        
-        // Public functions that expose the CPU's private functions
-        void stackPush(addr_t address){cpu.stackPush(address);};
-        addr_t stackPop(){return cpu.stackPop();};
-        void memWrite(addr_t address, byte_t value){cpu.memWrite(address, value);}
-        instruction_t fetch(){return cpu.fetch();}
-        void decode_execute(instruction_t instruction){cpu.decode_execute(instruction);}
-        void decode_execute(CPU& cpu, instruction_t instruction){cpu.decode_execute(instruction);}
+            : memoryMapper(make_shared<NiceMock<MockMemoryMapper>>()),
+              cpu(memoryMapper)
+        {}
+
 };
 
-TEST_F(CPUTest, AllGeneralPurposeRegistersStartWith0x00){
-    for(byte_t r : getRegs()){
-        EXPECT_EQ(r, 0x00);
-    }
-}
-
-TEST_F(CPUTest, ProgramCounterStartsWith0x200){
-    EXPECT_EQ(getPC(), 0x200);
-}
-
-TEST_F(CPUTest, IRegisterStartsWith0x0000){
-    EXPECT_EQ(getI(), 0x00);
-}
-
-TEST_F(CPUTest, RAMIsAllZeroesUpTo0x50){    
-    addr_t i = 0;
-    for(; i<0x50; i++){
-        EXPECT_EQ(cpu.memRead(i), 0x00);
-    }
-}
-
-TEST_F(CPUTest, CPUWritesStandartFontToRAMOnInitialization){
-    EXPECT_CALL(*ram, bulkWrite);
-    CPU cpu_ = CPU(ram, display, controller);
-}
-
-TEST_F(CPUTest, CPUCanWriteAndReadFromRAM){
-    EXPECT_CALL(*ram, write).Times(2);
-    memWrite(0x00, 0xB0);
-    memWrite(RAM_SIZE-1, 0x0B);
-    EXPECT_CALL(*ram, read).Times(2);
-    cpu.memRead(0x00);
-    cpu.memRead(RAM_SIZE-1);
-}
-
-TEST_F(CPUTest, FetchIncrementsPCBy2Bytes){
-    EXPECT_EQ(cpu.PCRead(), 0x0200);
-    EXPECT_EQ(fetch(), 0x0000);
-    EXPECT_EQ(cpu.PCRead(), 0x0202);
-}
-
-TEST_F(CPUTest, StepExecutesAFetchDecodeExecuteCycle){
-    getI() = 0x200;
-    // We'll try to execute instruction 7ABC (Add 0xBC to VA)
-    EXPECT_CALL(*ram, read(0x200)).WillOnce(Return(0x7A));
-    EXPECT_CALL(*ram, read(0x201)).WillOnce(Return(0xBC));
-    cpu.step();
-    EXPECT_EQ(cpu.PCRead(), 0x202);
-    EXPECT_EQ(regs->at(0xA), 0xBC);
-}
-
-TEST_F(CPUTest, DecTimersDecreasesDelayTimerAndSoundTimer){
-    getDelayTimer() = 10;
-    getSoundTimer() = 20;
-
-    cpu.decTimers();
-    EXPECT_EQ(getDelayTimer(), 9);
-    EXPECT_EQ(getSoundTimer(), 19);
-}
-
-TEST_F(CPUTest, DecTimersDoesNotUnderflowTimers){
-    getDelayTimer() = 1;
-    getSoundTimer() = 2;
-
-    cpu.decTimers();
-    EXPECT_EQ(getDelayTimer(), 0);
-    EXPECT_EQ(getSoundTimer(), 1);
-
-    cpu.decTimers();
-    EXPECT_EQ(getDelayTimer(), 0);
-    EXPECT_EQ(getSoundTimer(), 0);
-
-    cpu.decTimers();
-    EXPECT_EQ(getDelayTimer(), 0);
-    EXPECT_EQ(getSoundTimer(), 0);
-}
-
-TEST_F(CPUTest, Instruction00E0ClearScreenCallsDisplayClear){
-    EXPECT_CALL(*display, clear()).Times(1);
-    
-    decode_execute(0x00E0);
-}
-
-TEST_F(CPUTest, InvalidInstructionThrowsException){
-    EXPECT_THROW(decode_execute(0x0000),invalid_argument); // 0x0NNN is not implemented
-}
-
-TEST_F(CPUTest, Instruction1NNNJumpChangesPC){
-    decode_execute(0x1ABC);
-    EXPECT_EQ(cpu.PCRead(), 0x0ABC);
-    decode_execute(0x1000);
-    EXPECT_EQ(cpu.PCRead(), 0x0000);
-    decode_execute(0x1FFF);
-    EXPECT_EQ(cpu.PCRead(), 0x0FFF);
-}
-
-TEST_F(CPUTest, StackOperationsWork){
-    stackPush(0xABCD);
-    EXPECT_EQ(stackPop(), 0xABCD);
-}
-
-TEST_F(CPUTest, Instructions2NNNSubroutineAnd00EEReturnWork){
-    stack<addr_t>& stack = getStack();
-    ASSERT_EQ(cpu.PCRead(), 0x0200);
-
-    decode_execute(0x2ABC);
-    ASSERT_FALSE(stack.empty());
-    EXPECT_EQ(stack.top(), 0x0200);
-    EXPECT_EQ(cpu.PCRead(), 0x0ABC);
-
-    decode_execute(0x00EE);
-    EXPECT_TRUE(stack.empty());
-    EXPECT_EQ(cpu.PCRead(), 0x0200);
-}
-
-TEST_F(CPUTest, Instruction3XNNSkipIfVXEqualNNWorks){
-    decode_execute(0x3000);
-    EXPECT_EQ(cpu.PCRead(), 0x202);
-
-    regs->at(0xA) = 0xBC;
-    decode_execute(0x3ABC);
-    EXPECT_EQ(cpu.PCRead(), 0x204);
-
-    regs->at(0xB) = 0xCD;
-    decode_execute(0x3B00);
-    EXPECT_EQ(cpu.PCRead(), 0x204);
-}
-
-TEST_F(CPUTest, Instruction4XNNSkipIfVXNotEqualNNWorks){
-    decode_execute(0x4000);
-    EXPECT_EQ(cpu.PCRead(), 0x200);
-
-    regs->at(0xA) = 0xBC;
-    decode_execute(0x4ABC);
-    EXPECT_EQ(cpu.PCRead(), 0x200);
-
-    regs->at(0xB) = 0xCD;
-    decode_execute(0x4B00);
-    EXPECT_EQ(cpu.PCRead(), 0x202);
-}
-
-TEST_F(CPUTest, Instruction5XY0SkipIfVXEqualVYWorks){
-    decode_execute(0x5000);
-    EXPECT_EQ(cpu.PCRead(), 0x202);
-
-    regs->at(0x0) = 0x12;
-    regs->at(0x1) = 0x12;
-    decode_execute(0x5010);
-    EXPECT_EQ(cpu.PCRead(), 0x204);
-
-    regs->at(0x1) = 0x13;
-    decode_execute(0x5010);
-    EXPECT_EQ(cpu.PCRead(), 0x204);
-}
-
-TEST_F(CPUTest, Instruction9XY0SkipIfVXNotEqualVYWorks){
-    decode_execute(0x9000);
-    EXPECT_EQ(cpu.PCRead(), 0x200);
-
-    regs->at(0x0) = 0x12;
-    regs->at(0x1) = 0x12;
-    decode_execute(0x9010);
-    EXPECT_EQ(cpu.PCRead(), 0x200);
-
-    regs->at(0x1) = 0x13;
-    decode_execute(0x9010);
-    EXPECT_EQ(cpu.PCRead(), 0x202);
-}
-
-TEST_F(CPUTest, Instruction6XNNSetRegisterXToNNWorks){
-    decode_execute(0x60AB);
-    EXPECT_EQ(regs->at(0x0), 0xAB);
-    decode_execute(0x6FFF);
-    EXPECT_EQ(regs->at(0xF), 0xFF);
-}
-
-TEST_F(CPUTest, Instruction7XNNAddNNToVXWorks){
-    decode_execute(0x7012);
-    EXPECT_EQ(regs->at(0), 0x12);
-    decode_execute(0x7012);
-    EXPECT_EQ(regs->at(0), 0x24);
-    decode_execute(0x7012);
-    EXPECT_EQ(regs->at(0), 0x36);
-
-    regs->at(0xF) = 0xFF;
-    decode_execute(0x7F01);
-    EXPECT_EQ(regs->at(0xF), 0x00); // overflow
-}
-
-TEST_F(CPUTest, Instruction8XY0SetVXToVYWorks){
-    regs->at(0x1) = 0x25;
-    decode_execute(0x8010);
-    EXPECT_EQ(regs->at(0x0), 0x25);
-    
-    regs->at(0xF) = 0xFF;
-    decode_execute(0x81F0);
-    EXPECT_EQ(regs->at(0x1), 0xFF);
-}
-
-TEST_F(CPUTest, Instruction8XY1VXBecomesBinaryORBetweenVXAndVYWorks){
-    regs->at(0x1) = 0b10101010;
-    decode_execute(0x8011);
-    EXPECT_EQ(regs->at(0x0), 0b10101010);
-
-    decode_execute(0x8021);
-    EXPECT_EQ(regs->at(0x0), 0b10101010);
-
-    decode_execute(0x8121);
-    EXPECT_EQ(regs->at(0x1), 0b10101010);
-
-    regs->at(0xA) = 0b11000000;
-    regs->at(0xB) = 0b00110000;
-    regs->at(0xC) = 0b00001100;
-    regs->at(0xD) = 0b00000011;
-    decode_execute(0x8AB1);
-    EXPECT_EQ(regs->at(0xA), 0b11110000);
-    decode_execute(0x8CD1);
-    EXPECT_EQ(regs->at(0xC), 0b00001111);
-    decode_execute(0x8AC1);
-    EXPECT_EQ(regs->at(0xA), 0b11111111);
-    EXPECT_EQ(regs->at(0xC), 0b00001111);
-}
-
-TEST_F(CPUTest, Instruction8XY2VXBecomesBinaryANDBetweenVXAndVYWorks){
-    regs->at(0x1) = 0b10101010;
-    regs->at(0x2) = 0b01010101;
-    regs->at(0x3) = 0b00000011;
-    decode_execute(0x8012);
-    EXPECT_EQ(regs->at(0x0), 0b00000000);
-
-    decode_execute(0x8122);
-    EXPECT_EQ(regs->at(0x1), 0b00000000);
-
-    regs->at(0x1) = 0b10101010;
-
-    decode_execute(0x8132);
-    EXPECT_EQ(regs->at(0x1), 0b00000010);
-
-    decode_execute(0x8232);
-    EXPECT_EQ(regs->at(0x2), 0b00000001);
-}
-
-TEST_F(CPUTest, Instruction8XY3VXBecomesBinaryXORBetweenVXAndVYWorks){
-    regs->at(0x1) = 0b10101010;
-    regs->at(0x2) = 0b01010101;
-    regs->at(0x3) = 0b00000011;
-    decode_execute(0x8013);
-    EXPECT_EQ(regs->at(0x0), 0b10101010);
-
-    decode_execute(0x8123);
-    EXPECT_EQ(regs->at(0x1), 0b11111111);
-
-    decode_execute(0x8113);
-    EXPECT_EQ(regs->at(0x1), 0b00000000);
-}
-
-TEST_F(CPUTest, Instruction8XY4VXBecomesVXPlusVYAndAffectsCarryFlagWorks){
-    regs->at(0x1) = 1;
-    regs->at(0x2) = 2;
-    regs->at(0x3) = 3;
-    regs->at(0x4) = 256-6;
-    decode_execute(0x8014);
-    EXPECT_EQ(regs->at(0x0), 1);
-    decode_execute(0x8024);
-    EXPECT_EQ(regs->at(0x0), 3);
-    decode_execute(0x8034);
-    EXPECT_EQ(regs->at(0x0), 6);
-
-    decode_execute(0x8044);
-    EXPECT_EQ(regs->at(0x0), 0);
-    EXPECT_EQ(regs->at(0xF), 1);
-    decode_execute(0x8034);
-    EXPECT_EQ(regs->at(0x0), 3);
-    EXPECT_EQ(regs->at(0xF), 0);
-}
-
-TEST_F(CPUTest, Instruction8XY7VXBecomesVYMinusVXAndAffectsCarryFlagWorks){
-    regs->at(0x1) = 9;
-    regs->at(0x2) = 10;
-    decode_execute(0x8127);
-    EXPECT_EQ(regs->at(0x1), 1);
-    EXPECT_EQ(regs->at(0xF), 1);
-    decode_execute(0x8127);
-    EXPECT_EQ(regs->at(0x1), 9);
-    EXPECT_EQ(regs->at(0xF), 1);
-
-    decode_execute(0x8217);
-    EXPECT_EQ(regs->at(0x2), 0xFF);
-    EXPECT_EQ(regs->at(0xF), 0);
-}
-
-TEST_F(CPUTest, Instruction8XY6ShiftVXRightModernBehaviorWorks){
-    regs->at(0x0) = 1 << 7;
-    decode_execute(0x8006);
-    EXPECT_EQ(regs->at(0x0), 1 << 6);
-    decode_execute(0x8016);
-    EXPECT_EQ(regs->at(0x0), 1 << 5);
-    decode_execute(0x8026);
-    EXPECT_EQ(regs->at(0x0), 1 << 4);
-    decode_execute(0x8036);
-    EXPECT_EQ(regs->at(0x0), 1 << 3);
-    decode_execute(0x8046);
-    EXPECT_EQ(regs->at(0x0), 1 << 2);
-    decode_execute(0x8056);
-    EXPECT_EQ(regs->at(0x0), 1 << 1);
-    decode_execute(0x8066);
-    EXPECT_EQ(regs->at(0x0), 1 << 0);
-    decode_execute(0x8076);
-    EXPECT_EQ(regs->at(0x0), 0);
-    EXPECT_EQ(regs->at(0xF), 1);
-    decode_execute(0x8086);
-    EXPECT_EQ(regs->at(0x0), 0);
-    EXPECT_EQ(regs->at(0xF), 0);
-}
-
-TEST_F(CPUTest, Instruction8XY6ShiftVXRightLegacyBehaviorWorks){
-    setUseLegacyBehavior();
-
-    regs->at(0x1) = 1 << 7;
-    decode_execute(cpu, 0x8016);
-    EXPECT_EQ(regs->at(0x0), 1 << 6);
-    EXPECT_EQ(regs->at(0xF), 0);
-
-    regs->at(0x1) = 1;
-    decode_execute(cpu, 0x8016);
-    EXPECT_EQ(regs->at(0x0), 0);
-    EXPECT_EQ(regs->at(0xF), 1);
-}
-
-TEST_F(CPUTest, Instruction8XYEShiftVXLeftModernBehaviorWorks){
-    regs->at(0x0) = 1;
-    decode_execute(0x800E);
-    EXPECT_EQ(regs->at(0x0), 1 << 1);
-    decode_execute(0x801E);
-    EXPECT_EQ(regs->at(0x0), 1 << 2);
-    decode_execute(0x802E);
-    EXPECT_EQ(regs->at(0x0), 1 << 3);
-    decode_execute(0x803E);
-    EXPECT_EQ(regs->at(0x0), 1 << 4);
-    decode_execute(0x804E);
-    EXPECT_EQ(regs->at(0x0), 1 << 5);
-    decode_execute(0x805E);
-    EXPECT_EQ(regs->at(0x0), 1 << 6);
-    decode_execute(0x806E);
-    EXPECT_EQ(regs->at(0x0), 1 << 7);
-    decode_execute(0x807E);
-    EXPECT_EQ(regs->at(0x0), 0);
-    EXPECT_EQ(regs->at(0xF), 1);
-    decode_execute(0x808E);
-    EXPECT_EQ(regs->at(0x0), 0);
-    EXPECT_EQ(regs->at(0xF), 0);
-}
-
-TEST_F(CPUTest, Instruction8XY6ShiftVXLeftLegacyBehaviorWorks){
-    setUseLegacyBehavior();
-    
-    regs->at(0x1) = 1;
-    decode_execute(cpu, 0x801E);
-    EXPECT_EQ(regs->at(0x0), 1 << 1);
-    EXPECT_EQ(regs->at(0xF), 0);
-
-    regs->at(0x1) = 1 << 7;
-    decode_execute(cpu, 0x801E);
-    EXPECT_EQ(regs->at(0x0), 0);
-    EXPECT_EQ(regs->at(0xF), 1);
-
-    decode_execute(cpu, 0x800E);
-    EXPECT_EQ(regs->at(0x0), 0);
-    EXPECT_EQ(regs->at(0xF), 0);
-}
-
-TEST_F(CPUTest, InstructionANNNSetIndexRegisterToNNNWorks){
-    decode_execute(0xA123);
-    EXPECT_EQ(cpu.IRead(), 0x0123);
-    decode_execute(0xAFFF);
-    EXPECT_EQ(cpu.IRead(), 0x0FFF);
-    decode_execute(0xABCD);
-    EXPECT_EQ(cpu.IRead(), 0x0BCD);
-    decode_execute(0xA000);
-    EXPECT_EQ(cpu.IRead(), 0x0000);
-}
-
-TEST_F(CPUTest, InstructionBNNNJumpWithOffsetLegacyBehaviorWorks){
-    setUseLegacyBehavior();
-    
-    regs->at(0x0) = 1;
-    decode_execute(cpu, 0xB123);
-    EXPECT_EQ(cpu.PCRead(), 0x0124);
-    decode_execute(cpu, 0xBFFF);
-    EXPECT_EQ(cpu.PCRead(), 0x0000);
-    decode_execute(cpu, 0xBBCD);
-    EXPECT_EQ(cpu.PCRead(), 0x0BCE);
-    decode_execute(cpu, 0xB000);
-    EXPECT_EQ(cpu.PCRead(), 0x0001);
-}
-
-TEST_F(CPUTest, InstructionBNNNJumpWithOffsetModernBehaviorWorks){
-    regs->at(0x0) = 1;
-    regs->at(0x1) = 2;
-    regs->at(0xB) = 3;
-    decode_execute(0xB123);
-    EXPECT_EQ(cpu.PCRead(), 0x0125);
-    decode_execute(0xBFFF);
-    EXPECT_EQ(cpu.PCRead(), 0x0FFF);
-    decode_execute(0xBBCD);
-    EXPECT_EQ(cpu.PCRead(), 0x0BD0);
-    decode_execute(0xB000);
-    EXPECT_EQ(cpu.PCRead(), 0x0001);
-}
-
-TEST_F(CPUTest, InstructionDXYNDrawNPixelsTallSpritePointedToByIndexRegisterWorks){
-    regs->at(0xA) = 10;
-    regs->at(0xB) = 20;
-    getI() = 0x500;
-    ASSERT_EQ(cpu.IRead(), 0x500);
-
-    EXPECT_CALL(*display, getWidth()).WillRepeatedly(Return(64));
-    EXPECT_CALL(*display, getHeight()).WillRepeatedly(Return(32));
-
-    // Toggle a single pixel
-    EXPECT_CALL(*ram, read(0x500)).WillOnce(Return(0b10000000));
-    EXPECT_CALL(*display, togglePixel(10, 20)).Times(1);
-    decode_execute(0xDAB1);
-    EXPECT_EQ(regs->at(0xF), 0);
-    
-    // Toggle several pixels
-    regs->at(0xA) = 0;
-    regs->at(0xB) = 10;
-    getI() = 0xA00;
-    EXPECT_CALL(*ram, read(0xA00)).WillOnce(Return(0b11111111));
-    EXPECT_CALL(*display, togglePixel).Times(8);
-    decode_execute(0xDAB1);
-    EXPECT_EQ(regs->at(0xF), 0);
-
-    // Collision (toggle a pixel that is already on)
-    EXPECT_CALL(*ram, read(0xA00)).WillOnce(Return(0b11111111));
-    EXPECT_CALL(*display, getPixel).Times(8).WillRepeatedly(Return(0xFF));
-    EXPECT_CALL(*display, togglePixel).Times(8);
-    decode_execute(0xDBA1);
-    EXPECT_EQ(regs->at(0xF), 1);
-
-    // Sprites with multiple lines (N>1)
-    EXPECT_CALL(*ram, read(0xA00)).WillOnce(Return(0b11111111));
-    EXPECT_CALL(*ram, read(0xA01)).WillOnce(Return(0b11111111));
-    EXPECT_CALL(*display, getPixel).Times(16).WillRepeatedly(Return(0x00));
-    EXPECT_CALL(*display, togglePixel).Times(16);
-    decode_execute(0xDAB2);
-    EXPECT_EQ(regs->at(0xF), 0);
-
-    // Wrap starting X and Y
-    regs->at(0xA) = 64;
-    regs->at(0xB) = 32;
-    getI() = 0x123;
-    EXPECT_CALL(*ram, read(0x123)).WillOnce(Return(0b10000000));
-    EXPECT_CALL(*display, getPixel).WillOnce(Return(0xFF)).WillRepeatedly(Return(0xFF));
-    EXPECT_CALL(*display, togglePixel(0,0)).Times(1);
-    decode_execute(0xDAB1);
-
-    // Do not wrap sprite
-    regs->at(0xA) = 63;
-    regs->at(0xB) = 31;
-    EXPECT_CALL(*ram, read(0x123)).WillOnce(Return(0b11111111));
-    EXPECT_CALL(*display, getPixel).Times(1).WillOnce(Return(0x00));
-    EXPECT_CALL(*display, togglePixel).Times(1);
-    decode_execute(0xDABF);
-}
-
-TEST_F(CPUTest, InstructionEX9ESkipInstructionIfKeyXIsPressedWorks){
-    getPC() = 0x500;
-    regs->at(0x0) = 0;
-    regs->at(0x8) = 8;
-
-    EXPECT_CALL(*controller, isPressed(0x0)).WillOnce(Return(false));
-    decode_execute(0xE09E);
-    EXPECT_EQ(cpu.PCRead(), 0x500);
-
-    EXPECT_CALL(*controller, isPressed(0x8)).WillOnce(Return(true));
-    decode_execute(0xE89E);
-    EXPECT_EQ(cpu.PCRead(), 0x502);
-}
-
-TEST_F(CPUTest, InstructionEXA1SkipInstructionIfKeyXIsNotPressedWorks){
-    getPC() = 0x500;
-    regs->at(0x0) = 0;
-    regs->at(0x8) = 8;
-
-    EXPECT_CALL(*controller, isPressed(0x0)).WillOnce(Return(false));
-    decode_execute(0xE0A1);
-    EXPECT_EQ(cpu.PCRead(), 0x502);
-
-    EXPECT_CALL(*controller, isPressed(0x8)).WillOnce(Return(true));
-    decode_execute(0xE8A1);
-    EXPECT_EQ(cpu.PCRead(), 0x502);
-}
-
-TEST_F(CPUTest, InstructionFX07SetVXToTheValueOfDelayTimerWorks){
-    getDelayTimer() = 0xAB;
-    decode_execute(0xF507);
-    EXPECT_EQ(regs->at(0x5), 0xAB);
-}
-
-TEST_F(CPUTest, InstructionFX15SetDelayTimerToTheValueOfVXWorks){
-    regs->at(0x5) = 0xAB;
-    decode_execute(0xF515);
-    EXPECT_EQ(getDelayTimer(), 0xAB);
-}
-
-TEST_F(CPUTest, InstructionFX18SetSoundTimerToTheValueOfVXWorks){
-    regs->at(0x5) = 0xAB;
-    decode_execute(0xF518);
-    EXPECT_EQ(getSoundTimer(), 0xAB);
-}
-
-TEST_F(CPUTest, InstructionFX1EAddVXToIndexRegisterLegacyBehaviorWorks){
-    setUseLegacyBehavior();
-
-    getI(cpu) = 0x300;
-    regs->at(0xA) = 0x25;
-
-    decode_execute(cpu, 0xFA1E);
-    EXPECT_EQ(getI(cpu), 0x325);
-    EXPECT_EQ(regs->at(0xF), 0);
-
-    getI(cpu) = 0xFFF;
-    decode_execute(cpu, 0xFA1E);
-    EXPECT_EQ(getI(cpu), 0x024);
-    EXPECT_EQ(regs->at(0xF), 0);
-}
-
-TEST_F(CPUTest, InstructionFX1EAddVXToIndexRegisterModernBehaviorWorks){
-    getI() = 0x300;
-    regs->at(0xA) = 0x25;
-
-    decode_execute(0xFA1E);
-    EXPECT_EQ(getI(), 0x325);
-    EXPECT_EQ(regs->at(0xF), 0);
-
-    getI() = 0xFFF;
-    decode_execute(0xFA1E);
-    EXPECT_EQ(getI(), 0x024);
-    EXPECT_EQ(regs->at(0xF), 1);
-}
-
-TEST_F(CPUTest, InstructionFX0AAwaitKeyPressWorks){
-    regs->at(0x5) = 0xFF;
-    getPC() = 0x302;
-
-    EXPECT_CALL(*controller, getPressedKey()).WillOnce(Return(KEYS::NO_KEY));
-    decode_execute(0xF50A);
-    EXPECT_EQ(getPC(), 0x300);
-    EXPECT_EQ(regs->at(0x5), 0xFF);
-
-    /*
-    TODO: Fix this test. The instruction is working, but GTest gets confused
-    because Controller::isPressed(KEY_0) can be interpreted as either of the
-    overloaded functions since KEY_0 is an enum with valou 0, which can be
-    interpreted as an unsigned char 
-     */  
-    // EXPECT_CALL(*controller, getPressedKey()).WillOnce(Return(KEYS::KEY_0));
-    // decode_execute(0xF50A);
-    // EXPECT_EQ(getPC(), 0x300-0x002);
-    // EXPECT_CALL(*controller, getPressedKey()).WillOnce(Return(KEYS::NO_KEY));
-    // EXPECT_CALL(*controller, isPressed).WillOnce(Return(false));
-    // decode_execute(0xF50A);
-    // EXPECT_EQ(getPC(), 0x300);
-    // EXPECT_EQ(regs->at(0x5), 0x00);
-}
-
-TEST_F(CPUTest, InstructionFX29SetIndexRegisterToAddressOfFontCharacterInVXWorks){
-    regs->at(0x0) = 0x0;
-    regs->at(0x5) = 0x5;
-    regs->at(0xA) = 0xA;
-    regs->at(0xF) = 0xF;
-    regs->at(0x7) = 0x1;
-
-    decode_execute(0xF029);
-    EXPECT_EQ(getI(), 0x50+(5*0x0));
-    decode_execute(0xF529);
-    EXPECT_EQ(getI(), 0x50+(5*0x5));
-    decode_execute(0xFA29);
-    EXPECT_EQ(getI(), 0x50+(5*0xA));
-    decode_execute(0xFF29);
-    EXPECT_EQ(getI(), 0x50+(5*0xF));
-    decode_execute(0xF729);
-    EXPECT_EQ(getI(), 0x50+(5*0x1));
-}
-
-TEST_F(CPUTest, InstructionFX33SaveDecimalValueOfVXToTheTheeNextMemoryAddressesPointedToByIWorks){
-    regs->at(0x0) = 000;
-    regs->at(0x1) = 123;
-    regs->at(0x2) = 255;
-    getI() = 0x200;
-
-    EXPECT_CALL(*ram, write(0x200, 0));
-    EXPECT_CALL(*ram, write(0x201, 0));
-    EXPECT_CALL(*ram, write(0x202, 0));
-    decode_execute(0xF033);
-
-    getI() = 0x300;
-    EXPECT_CALL(*ram, write(0x300, 1));
-    EXPECT_CALL(*ram, write(0x301, 2));
-    EXPECT_CALL(*ram, write(0x302, 3));
-    decode_execute(0xF133);
-
-    getI() = 0x800;
-    EXPECT_CALL(*ram, write(0x800, 2));
-    EXPECT_CALL(*ram, write(0x801, 5));
-    EXPECT_CALL(*ram, write(0x802, 5));
-    decode_execute(0xF233);
-}
-
-TEST_F(CPUTest, InstructionFX55StoreValuesOfV0ThroughVXToAddressInIndexRegisterLegacyBehaviorWorks){
-    setUseLegacyBehavior();
-
-    getI(cpu) = 0x300;
-    regs->at(0) = 0;
-    regs->at(1) = 1;
-    regs->at(2) = 2;
-
-    EXPECT_CALL(*ram, write(0x300, 0));
-    EXPECT_CALL(*ram, write(0x301, 1));
-    EXPECT_CALL(*ram, write(0x302, 2));
-    decode_execute(cpu, 0xF255);
-    EXPECT_EQ(getI(cpu), 0x303);
-}
-
-TEST_F(CPUTest, InstructionFX55StoreValuesOfV0ThroughVXToAddressInIndexRegisterModernBehaviorWorks){
-    getI() = 0x300;
-    regs->at(0) = 0;
-    regs->at(1) = 1;
-    regs->at(2) = 2;
-
-    EXPECT_CALL(*ram, write(0x300, 0));
-    EXPECT_CALL(*ram, write(0x301, 1));
-    EXPECT_CALL(*ram, write(0x302, 2));
-    decode_execute(0xF255);
-    EXPECT_EQ(getI(), 0x300);
-}
-
-TEST_F(CPUTest, InstructionFX65LoadValuesFromAddressPointedToByIndexRegisterToRegistersV0ThroughVXLegacyBehaviorWorks){
-    setUseLegacyBehavior();
-
-    getI(cpu) = 0x300;
-    
-    EXPECT_CALL(*ram, read(0x300)).WillOnce(Return(0xA));
-    EXPECT_CALL(*ram, read(0x301)).WillOnce(Return(0xB));
-    EXPECT_CALL(*ram, read(0x302)).WillOnce(Return(0xC));
-    decode_execute(cpu, 0xF265);
-    EXPECT_EQ(regs->at(0), 0xA);
-    EXPECT_EQ(regs->at(1), 0xB);
-    EXPECT_EQ(regs->at(2), 0xC);
-    EXPECT_EQ(getI(cpu), 0x303);
-}
-
-TEST_F(CPUTest, InstructionFX65LoadValuesFromAddressPointedToByIndexRegisterToRegistersV0ThroughVXModernBehaviorWorks){
-    getI() = 0x300;
-    
-    EXPECT_CALL(*ram, read(0x300)).WillOnce(Return(0xA));
-    EXPECT_CALL(*ram, read(0x301)).WillOnce(Return(0xB));
-    EXPECT_CALL(*ram, read(0x302)).WillOnce(Return(0xC));
-    decode_execute(0xF265);
-    EXPECT_EQ(regs->at(0), 0xA);
-    EXPECT_EQ(regs->at(1), 0xB);
-    EXPECT_EQ(regs->at(2), 0xC);
-    EXPECT_EQ(getI(cpu), 0x300);
-}
-
-// This is commented because it has a 1/256 chance to fail randomly
-// TEST_F(CPUTest, InstructionCXNNGenerateARandomNumberANDItWithNNAndPutTheResultInVXWorks){
-//     decode_execute(0xC0FF);
-//     EXPECT_NE(regs->at(0x0), 0);
+// TEST_F(CPUTest, InstructionLDAImmediate){
+//     byte_t opcodeLDAIM = 0b10101001;
+//     getPC() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDAIM));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0x42);
 // }
 
-//TODO: turn these into integration tests
-
-// TEST_F(CPUTest, RAMHasStandardFontFrom0x50To0x9F){
-//     addr_t i = 0x50;
-//     for (i=0x50; i<=0x9F; i++){
-//         EXPECT_EQ(cpu.memRead(i), FONT[i-0x50]);
-//     }
+// TEST_F(CPUTest, InstructionLDAZeroPage){
+//     byte_t opcodeLDAZP = 0b10100101;
+//     getPC() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDAZP));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0x10);
 // }
 
-// TEST_F(CPUTest, RAMIsAllZerosFromWhereTheStandardFontEndsOn0x9FOnward){
-//     addr_t i = 0xA0;
-//     for (i=0xA0; i<RAM_SIZE; i++){
-//         EXPECT_EQ(cpu.memRead(i), 0x00);
-//     }
+// TEST_F(CPUTest, InstructionLDAZeroPageX){
+//     byte_t opcodeLDAZPX = 0b10110101;
+//     // No overflow on AddrL + X
+//     getPC() = 0x0;
+//     getX() = 0x10;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDAZPX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x52);
+//     EXPECT_CALL(*memoryMapper, read(0x52, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0x10);
+
+//     // Overflow on AddrL + X
+//     getPC() = 0x0;
+//     getX() = 0xFF;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDAZPX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x1));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0x00, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0x10);
 // }
 
-// TEST_F(CPUTest, FetchReturnsTheNextInstruction){
-//     memWrite(0x200, 0xB0);
-//     memWrite(0x201, 0x0B);
-//     EXPECT_EQ(fetch(), 0xB00B);
+// TEST_F(CPUTest, InstructionLDAAbsolute){
+//     byte_t opcodeLDAABS = 0b10101101;
+//     getPC() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDAABS));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0x10);
 // }
+
+// TEST_F(CPUTest, InstructionLDAAbsoluteX){
+//     byte_t opcodeLDAABSX = 0b10111101;
+//     // No "oops" cycle (addrL + X does not cross a page)
+//     getPC() = 0x0;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDAABSX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCC));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCC);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getIAL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0x10);
+
+//     // "oops" cycle (addrL + X does cross a page)
+//     getPC() = 0x0;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDAABSX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFF));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xFF);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFE));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xFE);
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xFE00, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xFF);
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xFF00, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0x10);
+// }
+
+// TEST_F(CPUTest, InstructionLDAAbsoluteY){
+//     byte_t opcodeLDAABSY = 0b10111001;
+//     // No "oops" cycle (addrL + Y does not cross a page)
+//     getPC() = 0x0;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDAABSY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCC));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCC);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getIAL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0x10);
+
+//     // "oops" cycle (addrL + Y does cross a page)
+//     getPC() = 0x0;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDAABSY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFF));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xFF);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFE));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xFE);
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xFE00, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xFF);
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xFF00, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0x10);
+// }
+
+// TEST_F(CPUTest, InstructionLDAIndirectX){
+//     byte_t opcodeLDAINDX = 0b10100001;
+//     // No page crossing on (pointer + X)
+//     getPC() = 0x0;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDAINDX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0x42);
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x43);
+//     EXPECT_CALL(*memoryMapper, read(0x0043, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x0044, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0x10);
+
+//     // Page crossing on (pointer + X)
+//     getPC() = 0x0;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDAINDX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFF));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xFF);
+//     EXPECT_CALL(*memoryMapper, read(0xFF, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0x0000, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x0001, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0x10);
+
+//     // Page crossing on (pointer + X + 1)
+//     getPC() = 0x0;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDAINDX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFE));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xFE);
+//     EXPECT_CALL(*memoryMapper, read(0xFE, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0xFF);
+//     EXPECT_CALL(*memoryMapper, read(0x00FF, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x0000, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0x10);
+// }
+
+// TEST_F(CPUTest, InstructionLDAIndirectY){
+//     byte_t opcodeLDAINDY = 0b10110001;
+//     // No page crossing on (pointer + Y)
+//     getPC() = 0x0;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDAINDY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0x42);
+//     EXPECT_CALL(*memoryMapper, read(0x0042, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCC));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x43);
+//     EXPECT_EQ(getAddrL(), 0xCC);
+//     EXPECT_CALL(*memoryMapper, read(0x0043, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0x10);
+
+//     // Page crossing on (pointer + Y)
+//     getPC() = 0x0;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDAINDY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0x42);
+//     EXPECT_CALL(*memoryMapper, read(0x0042, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFF));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x43);
+//     EXPECT_EQ(getAddrL(), 0xFF);
+//     EXPECT_CALL(*memoryMapper, read(0x0043, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getAddrL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xAB00, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAC);
+//     EXPECT_CALL(*memoryMapper, read(0xAC00, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0x10);
+// }
+
+// TEST_F(CPUTest, InstructionLDXImmediate){
+//     byte_t opcodeLDXIM = 0b10100010;
+//     getPC() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDXIM));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getX(), 0x42);
+// }
+
+// TEST_F(CPUTest, InstructionLDXZeroPage){
+//     byte_t opcodeLDXZP = 0b10100110;
+//     getPC() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDXZP));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getX(), 0x10);
+// }
+
+// TEST_F(CPUTest, InstructionLDXZeroPageY){
+//     byte_t opcodeLDXZPY = 0b10110110;
+//     // No overflow on AddrL + Y
+//     getPC() = 0x0;
+//     getY() = 0x10;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDXZPY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x52);
+//     EXPECT_CALL(*memoryMapper, read(0x52, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getX(), 0x10);
+
+//     // Overflow on AddrL + Y
+//     getPC() = 0x0;
+//     getY() = 0xFF;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDXZPY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x1));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0x00, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getX(), 0x10);
+// }
+
+// TEST_F(CPUTest, InstructionLDXAbsolute){
+//     byte_t opcodeLDXABS = 0b10101110;
+//     getPC() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDXABS));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getX(), 0x10);
+// }
+
+// TEST_F(CPUTest, InstructionLDXAbsoluteY){
+//     byte_t opcodeLDXABSY = 0b10111110;
+//     // No "oops" cycle (addrL + Y does not cross a page)
+//     getPC() = 0x0;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDXABSY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCC));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCC);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getIAL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getX(), 0x10);
+
+//     // "oops" cycle (addrL + X does cross a page)
+//     getPC() = 0x0;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDXABSY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFF));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xFF);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFE));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xFE);
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xFE00, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xFF);
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xFF00, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getX(), 0x10);
+// }
+
+// TEST_F(CPUTest, InstructionLDYImmediate){
+//     byte_t opcodeLDYIM = 0b10100000;
+//     getPC() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDYIM));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getY(), 0x42);
+// }
+
+// TEST_F(CPUTest, InstructionLDYZeroPage){
+//     byte_t opcodeLDYZP = 0b10100100;
+//     getPC() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDYZP));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getY(), 0x10);
+// }
+
+// TEST_F(CPUTest, InstructionLDYZeroPageX){
+//     byte_t opcodeLDYZPX = 0b10110100;
+//     // No overflow on AddrL + X
+//     getPC() = 0x0;
+//     getX() = 0x10;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDYZPX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x52);
+//     EXPECT_CALL(*memoryMapper, read(0x52, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getY(), 0x10);
+
+//     // Overflow on AddrL + X
+//     getPC() = 0x0;
+//     getX() = 0xFF;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDYZPX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x1));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0x00, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getY(), 0x10);
+// }
+
+// TEST_F(CPUTest, InstructionLDYAbsolute){
+//     byte_t opcodeLDYABS = 0b10101100;
+//     getPC() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDYABS));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getY(), 0x10);
+// }
+
+// TEST_F(CPUTest, InstructionLDYAbsoluteX){
+//     byte_t opcodeLDYABSX = 0b10111100;
+//     // No "oops" cycle (addrL + X does not cross a page)
+//     getPC() = 0x0;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDYABSX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCC));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCC);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getIAL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getY(), 0x10);
+
+//     // "oops" cycle (addrL + X does cross a page)
+//     getPC() = 0x0;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeLDYABSX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFF));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xFF);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFE));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xFE);
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xFE00, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xFF);
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xFF00, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getY(), 0x10);
+// }
+
+// TEST_F(CPUTest, InstructionSTAZeroPage){
+//     getPC() = 0x0;
+//     getA() = 0x10;
+//     byte_t opcodeSTAZP = 0b10000101;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeSTAZP));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, write(0x42, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+// }
+
+// TEST_F(CPUTest, InstructionSTAZeroPageX){
+//     getPC() = 0x0;
+//     getA() = 0x10;
+//     getX() = 0x40;
+//     byte_t opcodeSTAZPX = 0b10010101;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeSTAZPX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x02));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x02, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x42);
+//     EXPECT_CALL(*memoryMapper, write(0x42, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+// }
+
+// TEST_F(CPUTest, InstructionSTAAbsolute){
+//     getPC() = 0x0;
+//     getA() = 0x10;
+//     byte_t opcodeSTAABS = 0b10001101;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeSTAABS));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, write(0xABCD, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+// }
+
+// TEST_F(CPUTest, InstructionSTAAbsoluteX){
+//     byte_t opcodeSTAABSX = 0b10011101;
+//     // No page crossing
+//     getPC() = 0x0;
+//     getA() = 0x10;
+//     getX() = 0xCD;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeSTAABSX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x00));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, write(0xABCD, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+
+//     // Page crossing
+//     getPC() = 0x0;
+//     getA() = 0x10;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeSTAABSX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFF));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xAB00, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAC);
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, write(0xAC00, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+// }
+
+// TEST_F(CPUTest, InstructionSTAAbsoluteY){
+//     byte_t opcodeSTAABSY = 0b10011001;
+//     // No page crossing
+//     getPC() = 0x0;
+//     getA() = 0x10;
+//     getY() = 0xCD;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeSTAABSY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x00));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, write(0xABCD, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+
+//     // Page crossing
+//     getPC() = 0x0;
+//     getA() = 0x10;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeSTAABSY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFF));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xAB00, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAC);
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, write(0xAC00, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+// }
+
+// TEST_F(CPUTest, InstructionSTAIndirectX){
+//     byte_t opcodeSTAINDX = 0b10000001;
+//     // No page crossing on (pointer + X)
+//     getPC() = 0x0;
+//     getA() = 0x10;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeSTAINDX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0x42);
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x43);
+//     EXPECT_CALL(*memoryMapper, read(0x0043, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x0044, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, write(0xABCD, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+
+//     // Page crossing on (pointer + X)
+//     getPC() = 0x0;
+//     getA() = 0x10;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeSTAINDX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFF));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xFF);
+//     EXPECT_CALL(*memoryMapper, read(0xFF, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0x0000, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x0001, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, write(0xABCD, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+
+//     // Page crossing on (pointer + X + 1)
+//     getPC() = 0x0;
+//     getA() = 0x10;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeSTAINDX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFE));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xFE);
+//     EXPECT_CALL(*memoryMapper, read(0xFE, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0xFF);
+//     EXPECT_CALL(*memoryMapper, read(0x00FF, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x0000, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, write(0xABCD, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+// }
+
+// TEST_F(CPUTest, InstructionSTAIndirectY){
+//     byte_t opcodeSTAINDY = 0b10010001;
+//     // No page crossing on (pointer + Y)
+//     getPC() = 0x0;
+//     getA() = 0x10;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeSTAINDY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0x42);
+//     EXPECT_CALL(*memoryMapper, read(0x0042, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCC));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x43);
+//     EXPECT_EQ(getAddrL(), 0xCC);
+//     EXPECT_CALL(*memoryMapper, read(0x0043, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, write(0xABCD, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+
+//     // Page crossing on (pointer + Y)
+//     getPC() = 0x0;
+//     getA() = 0x10;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeSTAINDY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0x42);
+//     EXPECT_CALL(*memoryMapper, read(0x0042, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFF));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x43);
+//     EXPECT_EQ(getAddrL(), 0xFF);
+//     EXPECT_CALL(*memoryMapper, read(0x0043, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getAddrL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xAB00, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAC);
+//     EXPECT_CALL(*memoryMapper, write(0xAC00, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+// }
+
+// TEST_F(CPUTest, InstructionSTXZeroPage){
+//     getPC() = 0x0;
+//     getX() = 0x10;
+//     byte_t opcodeSTXZP = 0b10000110;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeSTXZP));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, write(0x42, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+// }
+
+// TEST_F(CPUTest, InstructionSTXZeroPageY){
+//     getPC() = 0x0;
+//     getX() = 0x10;
+//     getY() = 0x40;
+//     byte_t opcodeSTXZPY = 0b10010110;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeSTXZPY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x02));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x02, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x42);
+//     EXPECT_CALL(*memoryMapper, write(0x42, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+// }
+
+// TEST_F(CPUTest, InstructionSTXAbsolute){
+//     getPC() = 0x0;
+//     getX() = 0x10;
+//     byte_t opcodeSTXABS = 0b10001110;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeSTXABS));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, write(0xABCD, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+// }
+
+// TEST_F(CPUTest, InstructionSTYZeroPage){
+//     getPC() = 0x0;
+//     getY() = 0x10;
+//     byte_t opcodeSTYZP = 0b10000100;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeSTYZP));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, write(0x42, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+// }
+
+// TEST_F(CPUTest, InstructionSTYZeroPageX){
+//     getPC() = 0x0;
+//     getY() = 0x10;
+//     getX() = 0x40;
+//     byte_t opcodeSTXZPY = 0b10010100;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeSTXZPY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x02));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x02, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x42);
+//     EXPECT_CALL(*memoryMapper, write(0x42, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+// }
+
+// TEST_F(CPUTest, InstructionSTYAbsolute){
+//     getPC() = 0x0;
+//     getY() = 0x10;
+//     byte_t opcodeSTXABS = 0b10001100;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeSTXABS));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, write(0xABCD, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+// }
+
+// TEST_F(CPUTest, InstructionTAX){
+//     getPC() = 0x0;
+//     getA() = 0x10;
+//     getX() = 0x00;
+//     byte_t opcodeTAX = 0b10101010;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeTAX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getX(), 0x10);
+// }
+
+// TEST_F(CPUTest, InstructionTAY){
+//     getPC() = 0x0;
+//     getA() = 0x10;
+//     getY() = 0x00;
+//     byte_t opcodeTAY = 0b10101000;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeTAY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getY(), 0x10);
+// }
+
+// TEST_F(CPUTest, InstructionTXA){
+//     getPC() = 0x0;
+//     getX() = 0x10;
+//     getA() = 0x00;
+//     byte_t opcodeTXA = 0b10001010;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeTXA));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0x10);
+// }
+
+// TEST_F(CPUTest, InstructionTYA){
+//     getPC() = 0x0;
+//     getY() = 0x10;
+//     getA() = 0x00;
+//     byte_t opcodeTYA = 0b10011000;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeTYA));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0x10);
+// }
+
+// TEST_F(CPUTest, InstructionNOP){
+//     getPC() = 0x0;
+//     byte_t opcodeNOP = 0b11101010;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeNOP));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+// }
+
+// TEST_F(CPUTest, InstructionPHA){
+//     getPC() = 0x0;
+//     getSP() = 0xFF;
+//     getA() = 0x10;
+//     byte_t opcodePHA = 0b01001000;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodePHA));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, write(0x01FF, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getSP(), 0xFE);
+// }
+
+// TEST_F(CPUTest, InstructionPLA){
+//     getPC() = 0x0;
+//     getSP() = 0x41;
+//     getA() = 0x00;
+//     byte_t opcodePLA = 0b01101000;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodePLA));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     cpu.clkstep();
+//     EXPECT_EQ(getSP(), 0x42);
+//     EXPECT_CALL(*memoryMapper, read(0x142, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0x10);
+// }
+
+// TEST_F(CPUTest, InstructionPHP){
+//     getPC() = 0x0;
+//     getSP() = 0xFF;
+//     getStatus() = 0b11101111;
+//     byte_t opcodePHP = 0b00001000;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodePHP));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, write(0x01FF, ADDRESS_SPACE::CPU, 0b11111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getSP(), 0xFE);
+// }
+
+// TEST_F(CPUTest, InstructionPLP){
+//     getPC() = 0x0;
+//     getSP() = 0x41;
+//     getStatus() = 0x00;
+//     byte_t opcodePLP = 0b00101000;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodePLP));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     cpu.clkstep();
+//     EXPECT_EQ(getSP(), 0x42);
+//     EXPECT_CALL(*memoryMapper, read(0x142, ADDRESS_SPACE::CPU)).WillOnce(Return(0b11111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus(), 0b11001111);
+// }
+
+// TEST_F(CPUTest, InstructionTSX){
+//     getPC() = 0x0;
+//     getSP() = 0x10;
+//     getX() = 0x00;
+//     byte_t opcodeTSX = 0b10111010;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeTSX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getX(), 0x10);
+// }
+
+// TEST_F(CPUTest, InstructionTXS){
+//     getPC() = 0x0;
+//     getX() = 0x10;
+//     getSP() = 0x00;
+//     byte_t opcodeTXS = 0b10011010;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeTXS));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getSP(), 0x10);
+// }
+
+// TEST_F(CPUTest, InstructionCLC){
+//     getPC() = 0x0;
+//     getStatus() = 0b11111111;
+//     byte_t opcodeCLC = 0b00011000;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCLC));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus(), 0b11111110);
+// }
+
+// TEST_F(CPUTest, InstructionSEC){
+//     getPC() = 0x0;
+//     getStatus() = 0b00000000;
+//     byte_t opcodeSEC = 0b00111000;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeSEC));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus(), 0b00000001);
+// }
+
+// TEST_F(CPUTest, InstructionCLI){
+//     getPC() = 0x0;
+//     getStatus() = 0b11111111;
+//     byte_t opcodeCLI = 0b01011000;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCLI));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus(), 0b11111011);
+// }
+
+// TEST_F(CPUTest, InstructionSEI){
+//     getPC() = 0x0;
+//     getStatus() = 0b00000000;
+//     byte_t opcodeSEI = 0b01111000;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeSEI));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus(), 0b00000100);
+// }
+
+// TEST_F(CPUTest, InstructionCLD){
+//     getPC() = 0x0;
+//     getStatus() = 0b11111111;
+//     byte_t opcodeCLD = 0b11011000;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCLD));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus(), 0b11110111);
+// }
+
+// TEST_F(CPUTest, InstructionSED){
+//     getPC() = 0x0;
+//     getStatus() = 0b00000000;
+//     byte_t opcodeSED = 0b11111000;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeSED));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus(), 0b00001000);
+// }
+
+// TEST_F(CPUTest, InstructionCLV){
+//     getPC() = 0x0;
+//     getStatus() = 0b11111111;
+//     byte_t opcodeCLV = 0b10111000;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCLV));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus(), 0b10111111);
+// }
+
+// TEST_F(CPUTest, InstructionINX){
+//     getPC() = 0x0;
+//     getX() = 0;
+//     byte_t opcodeINX = 0b11101000;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeINX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getX(), 1);
+// }
+
+// TEST_F(CPUTest, InstructionINY){
+//     getPC() = 0x0;
+//     getY() = 0;
+//     byte_t opcodeINY = 0b11001000;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeINY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getY(), 1);
+// }
+
+// TEST_F(CPUTest, InstructionDEX){
+//     getPC() = 0x0;
+//     getX() = 1;
+//     byte_t opcodeDEX = 0b11001010;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeDEX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getX(), 0);
+// }
+
+// TEST_F(CPUTest, InstructionDEY){
+//     getPC() = 0x0;
+//     getY() = 1;
+//     byte_t opcodeDEY = 0b10001000;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeDEY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getY(), 0);
+// }
+
+// TEST_F(CPUTest, InstructionINCZeroPage){
+//     getPC() = 0x0;
+//     byte_t opcodeINCZP = 0b11100110;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeINCZP));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIDL(), 0x10);
+//     EXPECT_CALL(*memoryMapper, write(0x42, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIDL(), 0x11);
+//     EXPECT_CALL(*memoryMapper, write(0x42, ADDRESS_SPACE::CPU, 0x11));
+//     cpu.clkstep();
+// }
+
+// TEST_F(CPUTest, InstructionINCZeroPageX){
+//     getPC() = 0x0;
+//     getX() = 0x2;
+//     byte_t opcodeINCZPX = 0b11110110;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeINCZPX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x40));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x40, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x42);
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIDL(), 0x10);
+//     EXPECT_CALL(*memoryMapper, write(0x42, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIDL(), 0x11);
+//     EXPECT_CALL(*memoryMapper, write(0x42, ADDRESS_SPACE::CPU, 0x11));
+//     cpu.clkstep();
+// }
+
+// TEST_F(CPUTest, InstructionINCAbsolute){
+//     getPC() = 0x0;
+//     byte_t opcodeINCABS = 0b11101110;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeINCABS));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIDL(), 0x10);
+//     EXPECT_CALL(*memoryMapper, write(0xABCD, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIDL(), 0x11);
+//     EXPECT_CALL(*memoryMapper, write(0xABCD, ADDRESS_SPACE::CPU, 0x11));
+//     cpu.clkstep();
+// }
+
+// TEST_F(CPUTest, InstructionINCAbsoluteX){
+//     byte_t opcodeINCABSX = 0b11111110;
+    
+//     // No page crossing
+//     getPC() = 0x0;
+//     getX() = 0x1;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeINCABSX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCC));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIDL(), 0x10);
+//     EXPECT_CALL(*memoryMapper, write(0xABCD, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIDL(), 0x11);
+//     EXPECT_CALL(*memoryMapper, write(0xABCD, ADDRESS_SPACE::CPU, 0x11));
+//     cpu.clkstep();
+
+//     // Page crossing
+//     getPC() = 0x0;
+//     getX() = 0x1;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeINCABSX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFF));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x0);
+//     EXPECT_CALL(*memoryMapper, read(0xAB00, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0xAC00, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIDL(), 0x10);
+//     EXPECT_CALL(*memoryMapper, write(0xAC00, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIDL(), 0x11);
+//     EXPECT_CALL(*memoryMapper, write(0xAC00, ADDRESS_SPACE::CPU, 0x11));
+//     cpu.clkstep();
+// }
+
+// TEST_F(CPUTest, InstructionDECZeroPage){
+//     getPC() = 0x0;
+//     byte_t opcodeDECZP = 0b11000110;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeDECZP));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIDL(), 0x10);
+//     EXPECT_CALL(*memoryMapper, write(0x42, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIDL(), 0x0F);
+//     EXPECT_CALL(*memoryMapper, write(0x42, ADDRESS_SPACE::CPU, 0x0F));
+//     cpu.clkstep();
+// }
+
+// TEST_F(CPUTest, InstructionDECZeroPageX){
+//     getPC() = 0x0;
+//     getX() = 0x2;
+//     byte_t opcodeDECZPX = 0b11010110;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeDECZPX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x40));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x40, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x42);
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIDL(), 0x10);
+//     EXPECT_CALL(*memoryMapper, write(0x42, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIDL(), 0x0F);
+//     EXPECT_CALL(*memoryMapper, write(0x42, ADDRESS_SPACE::CPU, 0x0F));
+//     cpu.clkstep();
+// }
+
+// TEST_F(CPUTest, InstructionDECAbsolute){
+//     getPC() = 0x0;
+//     byte_t opcodeDECABS = 0b11001110;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeDECABS));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIDL(), 0x10);
+//     EXPECT_CALL(*memoryMapper, write(0xABCD, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIDL(), 0x0F);
+//     EXPECT_CALL(*memoryMapper, write(0xABCD, ADDRESS_SPACE::CPU, 0x0F));
+//     cpu.clkstep();
+// }
+
+// TEST_F(CPUTest, InstructionDECAbsoluteX){
+//     byte_t opcodeDECABSX = 0b11011110;
+    
+//     // No page crossing
+//     getPC() = 0x0;
+//     getX() = 0x1;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeDECABSX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCC));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIDL(), 0x10);
+//     EXPECT_CALL(*memoryMapper, write(0xABCD, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIDL(), 0x0F);
+//     EXPECT_CALL(*memoryMapper, write(0xABCD, ADDRESS_SPACE::CPU, 0x0F));
+//     cpu.clkstep();
+
+//     // Page crossing
+//     getPC() = 0x0;
+//     getX() = 0x1;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeDECABSX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFF));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x0);
+//     EXPECT_CALL(*memoryMapper, read(0xAB00, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0xAC00, ADDRESS_SPACE::CPU)).WillOnce(Return(0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIDL(), 0x10);
+//     EXPECT_CALL(*memoryMapper, write(0xAC00, ADDRESS_SPACE::CPU, 0x10));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIDL(), 0x0F);
+//     EXPECT_CALL(*memoryMapper, write(0xAC00, ADDRESS_SPACE::CPU, 0x0F));
+//     cpu.clkstep();
+// }
+
+// TEST_F(CPUTest, InstructionANDImmediate){
+//     byte_t opcodeANDIM = 0b00101001;
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeANDIM));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b00110000);
+// }
+
+// TEST_F(CPUTest, InstructionANDZeroPage){
+//     byte_t opcodeANDZP = 0b00100101;
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeANDZP));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b00110000);
+// }
+
+// TEST_F(CPUTest, InstructionANDZeroPageX){
+//     byte_t opcodeANDZPX = 0b00110101;
+//     // No overflow on AddrL + X
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getX() = 0x10;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeANDZPX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x52);
+//     EXPECT_CALL(*memoryMapper, read(0x52, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b00110000);
+
+//     // Overflow on AddrL + X
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getX() = 0xFF;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeANDZPX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x1));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0x00, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b00110000);
+// }
+
+// TEST_F(CPUTest, InstructionANDAbsolute){
+//     byte_t opcodeANDABS = 0b00101101;
+//     getA() = 0b11110000;
+//     getPC() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeANDABS));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b00110000);
+// }
+
+// TEST_F(CPUTest, InstructionANDAbsoluteX){
+//     byte_t opcodeANDABSX = 0b00111101;
+//     // No "oops" cycle (addrL + X does not cross a page)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeANDABSX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCC));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCC);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getIAL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b00110000);
+
+//     // "oops" cycle (addrL + X does cross a page)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeANDABSX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFF));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xFF);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFE));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xFE);
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xFE00, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xFF);
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xFF00, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b00110000);
+// }
+
+// TEST_F(CPUTest, InstructionANDAbsoluteY){
+//     byte_t opcodeANDABSY = 0b00111001;
+//     // No "oops" cycle (addrL + Y does not cross a page)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeANDABSY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCC));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCC);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getIAL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b00110000);
+
+//     // "oops" cycle (addrL + Y does cross a page)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeANDABSY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFF));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xFF);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFE));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xFE);
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xFE00, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xFF);
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xFF00, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b00110000);
+// }
+
+// TEST_F(CPUTest, InstructionANDIndirectX){
+//     byte_t opcodeANDINDX = 0b00100001;
+//     // No page crossing on (pointer + X)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeANDINDX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0x42);
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x43);
+//     EXPECT_CALL(*memoryMapper, read(0x0043, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x0044, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b00110000);
+
+//     // Page crossing on (pointer + X)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeANDINDX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFF));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xFF);
+//     EXPECT_CALL(*memoryMapper, read(0xFF, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0x0000, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x0001, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b00110000);
+
+//     // Page crossing on (pointer + X + 1)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeANDINDX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFE));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xFE);
+//     EXPECT_CALL(*memoryMapper, read(0xFE, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0xFF);
+//     EXPECT_CALL(*memoryMapper, read(0x00FF, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x0000, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b00110000);
+// }
+
+// TEST_F(CPUTest, InstructionANDIndirectY){
+//     byte_t opcodeANDINDY = 0b00110001;
+//     // No page crossing on (pointer + Y)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeANDINDY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0x42);
+//     EXPECT_CALL(*memoryMapper, read(0x0042, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCC));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x43);
+//     EXPECT_EQ(getAddrL(), 0xCC);
+//     EXPECT_CALL(*memoryMapper, read(0x0043, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b00110000);
+
+//     // Page crossing on (pointer + Y)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeANDINDY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0x42);
+//     EXPECT_CALL(*memoryMapper, read(0x0042, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFF));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x43);
+//     EXPECT_EQ(getAddrL(), 0xFF);
+//     EXPECT_CALL(*memoryMapper, read(0x0043, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getAddrL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xAB00, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAC);
+//     EXPECT_CALL(*memoryMapper, read(0xAC00, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b00110000);
+// }
+
+// TEST_F(CPUTest, InstructionORAImmediate){
+//     byte_t opcodeORAIM = 0b00001001;
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeORAIM));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11111111);
+// }
+
+// TEST_F(CPUTest, InstructionORAZeroPage){
+//     byte_t opcodeORAZP = 0b00000101;
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeORAZP));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11111111);
+// }
+
+// TEST_F(CPUTest, InstructionORAZeroPageX){
+//     byte_t opcodeORAZPX = 0b00010101;
+//     // No overflow on AddrL + X
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getX() = 0x10;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeORAZPX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x52);
+//     EXPECT_CALL(*memoryMapper, read(0x52, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11111111);
+
+//     // Overflow on AddrL + X
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getX() = 0xFF;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeORAZPX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x1));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0x00, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11111111);
+// }
+
+// TEST_F(CPUTest, InstructionORAAbsolute){
+//     byte_t opcodeORAABS = 0b00001101;
+//     getA() = 0b11110000;
+//     getPC() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeORAABS));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11111111);
+// }
+
+// TEST_F(CPUTest, InstructionORAAbsoluteX){
+//     byte_t opcodeORAABSX = 0b00011101;
+//     // No "oops" cycle (addrL + X does not cross a page)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeORAABSX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCC));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCC);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getIAL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11111111);
+
+//     // "oops" cycle (addrL + X does cross a page)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeORAABSX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFF));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xFF);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFE));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xFE);
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xFE00, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xFF);
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xFF00, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11111111);
+// }
+
+// TEST_F(CPUTest, InstructionORAAbsoluteY){
+//     byte_t opcodeORAABSY = 0b00011001;
+//     // No "oops" cycle (addrL + Y does not cross a page)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeORAABSY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCC));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCC);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getIAL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11111111);
+
+//     // "oops" cycle (addrL + Y does cross a page)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeORAABSY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFF));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xFF);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFE));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xFE);
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xFE00, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xFF);
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xFF00, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11111111);
+// }
+
+// TEST_F(CPUTest, InstructionORAIndirectX){
+//     byte_t opcodeORAINDX = 0b00000001;
+//     // No page crossing on (pointer + X)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeORAINDX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0x42);
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x43);
+//     EXPECT_CALL(*memoryMapper, read(0x0043, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x0044, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11111111);
+
+//     // Page crossing on (pointer + X)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeORAINDX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFF));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xFF);
+//     EXPECT_CALL(*memoryMapper, read(0xFF, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0x0000, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x0001, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11111111);
+
+//     // Page crossing on (pointer + X + 1)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeORAINDX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFE));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xFE);
+//     EXPECT_CALL(*memoryMapper, read(0xFE, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0xFF);
+//     EXPECT_CALL(*memoryMapper, read(0x00FF, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x0000, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11111111);
+// }
+
+// TEST_F(CPUTest, InstructionORAIndirectY){
+//     byte_t opcodeORAINDY = 0b00010001;
+//     // No page crossing on (pointer + Y)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeORAINDY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0x42);
+//     EXPECT_CALL(*memoryMapper, read(0x0042, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCC));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x43);
+//     EXPECT_EQ(getAddrL(), 0xCC);
+//     EXPECT_CALL(*memoryMapper, read(0x0043, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11111111);
+
+//     // Page crossing on (pointer + Y)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeORAINDY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0x42);
+//     EXPECT_CALL(*memoryMapper, read(0x0042, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFF));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x43);
+//     EXPECT_EQ(getAddrL(), 0xFF);
+//     EXPECT_CALL(*memoryMapper, read(0x0043, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getAddrL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xAB00, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAC);
+//     EXPECT_CALL(*memoryMapper, read(0xAC00, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11111111);
+// }
+
+// TEST_F(CPUTest, InstructionEORImmediate){
+//     byte_t opcodeEORIM = 0b01001001;
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeEORIM));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11001111);
+// }
+
+// TEST_F(CPUTest, InstructionEORZeroPage){
+//     byte_t opcodeEORZP = 0b01000101;
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeEORZP));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11001111);
+// }
+
+// TEST_F(CPUTest, InstructionEORZeroPageX){
+//     byte_t opcodeEORZPX = 0b01010101;
+//     // No overflow on AddrL + X
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getX() = 0x10;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeEORZPX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x52);
+//     EXPECT_CALL(*memoryMapper, read(0x52, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11001111);
+
+//     // Overflow on AddrL + X
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getX() = 0xFF;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeEORZPX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x1));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0x00, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11001111);
+// }
+
+// TEST_F(CPUTest, InstructionEORAbsolute){
+//     byte_t opcodeEORABS = 0b01001101;
+//     getA() = 0b11110000;
+//     getPC() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeEORABS));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11001111);
+// }
+
+// TEST_F(CPUTest, InstructionEORAbsoluteX){
+//     byte_t opcodeEORABSX = 0b01011101;
+//     // No "oops" cycle (addrL + X does not cross a page)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeEORABSX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCC));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCC);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getIAL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11001111);
+
+//     // "oops" cycle (addrL + X does cross a page)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeEORABSX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFF));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xFF);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFE));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xFE);
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xFE00, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xFF);
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xFF00, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11001111);
+// }
+
+// TEST_F(CPUTest, InstructionEORAbsoluteY){
+//     byte_t opcodeEORABSY = 0b01011001;
+//     // No "oops" cycle (addrL + Y does not cross a page)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeEORABSY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCC));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCC);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getIAL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11001111);
+
+//     // "oops" cycle (addrL + Y does cross a page)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeEORABSY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFF));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xFF);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFE));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xFE);
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xFE00, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xFF);
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xFF00, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11001111);
+// }
+
+// TEST_F(CPUTest, InstructionEORIndirectX){
+//     byte_t opcodeEORINDX = 0b01000001;
+//     // No page crossing on (pointer + X)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeEORINDX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0x42);
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x43);
+//     EXPECT_CALL(*memoryMapper, read(0x0043, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x0044, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11001111);
+
+//     // Page crossing on (pointer + X)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeEORINDX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFF));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xFF);
+//     EXPECT_CALL(*memoryMapper, read(0xFF, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0x0000, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x0001, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11001111);
+
+//     // Page crossing on (pointer + X + 1)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeEORINDX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFE));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xFE);
+//     EXPECT_CALL(*memoryMapper, read(0xFE, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0xFF);
+//     EXPECT_CALL(*memoryMapper, read(0x00FF, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x0000, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11001111);
+// }
+
+// TEST_F(CPUTest, InstructionEORIndirectY){
+//     byte_t opcodeEORINDY = 0b01010001;
+//     // No page crossing on (pointer + Y)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeEORINDY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0x42);
+//     EXPECT_CALL(*memoryMapper, read(0x0042, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCC));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x43);
+//     EXPECT_EQ(getAddrL(), 0xCC);
+//     EXPECT_CALL(*memoryMapper, read(0x0043, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11001111);
+
+//     // Page crossing on (pointer + Y)
+//     getPC() = 0x0;
+//     getA() = 0b11110000;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeEORINDY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0x42);
+//     EXPECT_CALL(*memoryMapper, read(0x0042, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFF));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x43);
+//     EXPECT_EQ(getAddrL(), 0xFF);
+//     EXPECT_CALL(*memoryMapper, read(0x0043, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getAddrL(), 0x00);
+//     EXPECT_CALL(*memoryMapper, read(0xAB00, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAC);
+//     EXPECT_CALL(*memoryMapper, read(0xAC00, ADDRESS_SPACE::CPU)).WillOnce(Return(0b00111111));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0b11001111);
+// }
+
+// TEST_F(CPUTest, InstructionBITZeroPage){
+//     byte_t opcodeBITZP = 0b00100100;
+
+//     // Zero
+//     getPC() = 0x0;
+//     getA() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeBITZP));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0x0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getA(), 0x0);
+//     EXPECT_EQ(getStatus() & 0b00000010, 0b00000010);
+
+//     // N
+//     getPC() = 0x0;
+//     getA() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeBITZP));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0b10000000));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b10000000, 0b10000000);
+
+//     // V
+//     getPC() = 0x0;
+//     getA() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeBITZP));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0b01000000));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b01000000, 0b01000000);
+// }
+
+// TEST_F(CPUTest, InstructionBITAbsolute){
+//     byte_t opcodeBITABS = 0b00101100;
+
+//     // Zero
+//     getA() = 0x0;
+//     getPC() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeBITABS));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000010, 0b00000010);
+
+//     // N
+//     getA() = 0x0;
+//     getPC() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeBITABS));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0b10000000));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b10000000, 0b10000000);
+
+//     // V
+//     getA() = 0x0;
+//     getPC() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeBITABS));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0b01000000));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b01000000, 0b01000000);
+// }
+
+// TEST_F(CPUTest, InstructionCMPImmediate){
+//     byte_t opcodeCMPIM = 0b11001001;
+
+//     // Zero
+//     getPC() = 0x0;
+//     getA() = 0x42;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCMPIM));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000010, 0b00000010);
+
+//     // C
+//     getPC() = 0x0;
+//     getA() = 0x42;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCMPIM));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x41));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000001, 0b00000001);
+
+//     // N
+//     getPC() = 0x0;
+//     getA() = 0x42;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCMPIM));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x43));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b10000000, 0b10000000);
+// }
+
+// TEST_F(CPUTest, InstructionCMPZeroPage){
+//     byte_t opcodeCMPZP = 0b11000101;
+
+//     // Zero
+//     getPC() = 0x0;
+//     getA() = 0x42;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCMPZP));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000010, 0b00000010);
+
+//     // C
+//     getPC() = 0x0;
+//     getA() = 0x42;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCMPZP));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0x41));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000001, 0b00000001);
+
+//     // N
+//     getPC() = 0x0;
+//     getA() = 0x42;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCMPZP));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0x43));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b10000000, 0b10000000);
+// }
+
+// TEST_F(CPUTest, InstructionCMPZeroPageX){
+//     byte_t opcodeCMPZPX = 0b11010101;
+
+//     // Zero
+//     getPC() = 0x0;
+//     getA() = 0x42;
+//     getX() = 0x10;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCMPZPX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x52);
+//     EXPECT_CALL(*memoryMapper, read(0x52, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000010, 0b00000010);
+
+//     // C
+//     getPC() = 0x0;
+//     getA() = 0x42;
+//     getX() = 0x10;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCMPZPX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x52);
+//     EXPECT_CALL(*memoryMapper, read(0x52, ADDRESS_SPACE::CPU)).WillOnce(Return(0x41));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000001, 0b00000001);
+
+//     // N
+//     getPC() = 0x0;
+//     getA() = 0x42;
+//     getX() = 0x10;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCMPZPX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x52);
+//     EXPECT_CALL(*memoryMapper, read(0x52, ADDRESS_SPACE::CPU)).WillOnce(Return(0x43));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b10000000, 0b10000000);
+// }
+
+// TEST_F(CPUTest, InstructionCMPAbsolute){
+//     byte_t opcodeCMPABS = 0b11001101;
+
+//     // Zero
+//     getA() = 0x42;
+//     getPC() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCMPABS));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000010, 0b00000010);
+
+//     // C
+//     getA() = 0x42;
+//     getPC() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCMPABS));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x41));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000001, 0b00000001);
+
+//     // N
+//     getA() = 0x42;
+//     getPC() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCMPABS));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x43));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b10000000, 0b10000000);
+// }
+
+// TEST_F(CPUTest, InstructionCMPAbsoluteX){
+//     byte_t opcodeCMPABSX = 0b11011101;
+    
+//     // Zero
+//     getPC() = 0x0;
+//     getA() = 0x42;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCMPABSX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCC));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCC);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getIAL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000010, 0b00000010);
+
+//     // C
+//     getPC() = 0x0;
+//     getA() = 0x42;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCMPABSX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCC));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCC);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getIAL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x41));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000001, 0b00000001);
+
+//     // N
+//     getPC() = 0x0;
+//     getA() = 0x42;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCMPABSX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCC));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCC);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getIAL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x43));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b10000000, 0b10000000);
+// }
+
+// TEST_F(CPUTest, InstructionCMPAbsoluteY){
+//     byte_t opcodeCMPABSY = 0b11011001;
+    
+//     // Zero
+//     getPC() = 0x0;
+//     getA() = 0x42;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCMPABSY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCC));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCC);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getIAL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000010, 0b00000010);
+
+//     // C
+//     getPC() = 0x0;
+//     getA() = 0x42;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCMPABSY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCC));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCC);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getIAL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x41));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000001, 0b00000001);
+
+//     // N
+//     getPC() = 0x0;
+//     getA() = 0x42;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCMPABSY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCC));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCC);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getIAL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x43));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b10000000, 0b10000000);
+// }
+
+// TEST_F(CPUTest, InstructionCMPIndirectX){
+//     byte_t opcodeCMPINDX = 0b11000001;
+    
+//     // Zero
+//     getPC() = 0x0;
+//     getA() = 0x42;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCMPINDX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0x42);
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x43);
+//     EXPECT_CALL(*memoryMapper, read(0x0043, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x0044, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000010, 0b00000010);
+
+//     // C
+//     getPC() = 0x0;
+//     getA() = 0x42;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCMPINDX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0x42);
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x43);
+//     EXPECT_CALL(*memoryMapper, read(0x0043, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x0044, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x41));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000001, 0b00000001);
+
+//     // N
+//     getPC() = 0x0;
+//     getA() = 0x42;
+//     getX() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCMPINDX));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0x42);
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x43);
+//     EXPECT_CALL(*memoryMapper, read(0x0043, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x0044, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x43));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b10000000, 0b10000000);
+// }
+
+// TEST_F(CPUTest, InstructionCMPIndirectY){
+//     byte_t opcodeCMPINDY = 0b11010001;
+    
+//     // Zero
+//     getPC() = 0x0;
+//     getA() = 0x42;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCMPINDY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0x42);
+//     EXPECT_CALL(*memoryMapper, read(0x0042, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCC));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x43);
+//     EXPECT_EQ(getAddrL(), 0xCC);
+//     EXPECT_CALL(*memoryMapper, read(0x0043, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000010, 0b00000010);
+
+//     // C
+//     getPC() = 0x0;
+//     getA() = 0x42;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCMPINDY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0x42);
+//     EXPECT_CALL(*memoryMapper, read(0x0042, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCC));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x43);
+//     EXPECT_EQ(getAddrL(), 0xCC);
+//     EXPECT_CALL(*memoryMapper, read(0x0043, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x41));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000001, 0b00000001);
+
+//     // N
+//     getPC() = 0x0;
+//     getA() = 0x42;
+//     getY() = 0x01;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCMPINDY));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0x42);
+//     EXPECT_CALL(*memoryMapper, read(0x0042, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCC));
+//     cpu.clkstep();
+//     EXPECT_EQ(getIAL(), 0x43);
+//     EXPECT_EQ(getAddrL(), 0xCC);
+//     EXPECT_CALL(*memoryMapper, read(0x0043, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x43));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b10000000, 0b10000000);
+// }
+
+// TEST_F(CPUTest, InstructionCPXImmediate){
+//     byte_t opcodeCPXIM = 0b11100000;
+
+//     // Zero
+//     getPC() = 0x0;
+//     getX() = 0x42;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCPXIM));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000010, 0b00000010);
+
+//     // C
+//     getPC() = 0x0;
+//     getX() = 0x42;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCPXIM));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x41));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000001, 0b00000001);
+
+//     // N
+//     getPC() = 0x0;
+//     getX() = 0x42;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCPXIM));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x43));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b10000000, 0b10000000);
+// }
+
+// TEST_F(CPUTest, InstructionCPXZeroPage){
+//     byte_t opcodeCPXZP = 0b11100100;
+
+//     // Zero
+//     getPC() = 0x0;
+//     getX() = 0x42;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCPXZP));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000010, 0b00000010);
+
+//     // C
+//     getPC() = 0x0;
+//     getX() = 0x42;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCPXZP));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0x41));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000001, 0b00000001);
+
+//     // N
+//     getPC() = 0x0;
+//     getX() = 0x42;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCPXZP));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0x43));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b10000000, 0b10000000);
+// }
+
+// TEST_F(CPUTest, InstructionCPXAbsolute){
+//     byte_t opcodeCPXABS = 0b11101100;
+
+//     // Zero
+//     getX() = 0x42;
+//     getPC() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCPXABS));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000010, 0b00000010);
+
+//     // C
+//     getX() = 0x42;
+//     getPC() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCPXABS));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x41));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000001, 0b00000001);
+
+//     // N
+//     getX() = 0x42;
+//     getPC() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCPXABS));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x43));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b10000000, 0b10000000);
+// }
+
+// TEST_F(CPUTest, InstructionCPYImmediate){
+//     byte_t opcodeCPYIM = 0b11000000;
+
+//     // Zero
+//     getPC() = 0x0;
+//     getY() = 0x42;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCPYIM));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000010, 0b00000010);
+
+//     // C
+//     getPC() = 0x0;
+//     getY() = 0x42;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCPYIM));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x41));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000001, 0b00000001);
+
+//     // N
+//     getPC() = 0x0;
+//     getY() = 0x42;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCPYIM));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x43));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b10000000, 0b10000000);
+// }
+
+// TEST_F(CPUTest, InstructionCPYZeroPage){
+//     byte_t opcodeCPYZP = 0b11000100;
+
+//     // Zero
+//     getPC() = 0x0;
+//     getY() = 0x42;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCPYZP));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000010, 0b00000010);
+
+//     // C
+//     getPC() = 0x0;
+//     getY() = 0x42;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCPYZP));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0x41));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000001, 0b00000001);
+
+//     // N
+//     getPC() = 0x0;
+//     getY() = 0x42;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCPYZP));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x42, ADDRESS_SPACE::CPU)).WillOnce(Return(0x43));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b10000000, 0b10000000);
+// }
+
+// TEST_F(CPUTest, InstructionCPYAbsolute){
+//     byte_t opcodeCPYABS = 0b11001100;
+
+//     // Zero
+//     getY() = 0x42;
+//     getPC() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCPYABS));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x42));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000010, 0b00000010);
+
+//     // C
+//     getY() = 0x42;
+//     getPC() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCPYABS));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x41));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b00000001, 0b00000001);
+
+//     // N
+//     getY() = 0x42;
+//     getPC() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeCPYABS));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrH(), 0xAB);
+//     EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x43));
+//     cpu.clkstep();
+//     EXPECT_EQ(getStatus() & 0b10000000, 0b10000000);
+// }
+
+// TEST_F(CPUTest, InstructionJMPAbsolute){
+//     byte_t opcodeJMPABS = 0b01001100;
+
+//     getPC() = 0x0;
+//     EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeJMPABS));
+//     cpu.clkstep();
+//     EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+//     cpu.clkstep();
+//     EXPECT_EQ(getAddrL(), 0xCD);
+//     EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+//     cpu.clkstep();
+//     EXPECT_EQ(getPC(), 0xABCD);
+// }
+
+TEST_F(CPUTest, InstructionJMPIND){
+    byte_t opcodeJMPIND = 0b01101100;
+
+    // No page crossing
+    getPC() = 0x0;
+    EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeJMPIND));
+    cpu.clkstep();
+    EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+    cpu.clkstep();
+    EXPECT_EQ(getAddrL(), 0xCD);
+    EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+    cpu.clkstep();
+    EXPECT_EQ(getAddrH(), 0xAB);
+    EXPECT_CALL(*memoryMapper, read(0xABCD, ADDRESS_SPACE::CPU)).WillOnce(Return(0x34));
+    cpu.clkstep();
+    EXPECT_EQ(getIDL(), 0x34);
+    EXPECT_CALL(*memoryMapper, read(0xABCE, ADDRESS_SPACE::CPU)).WillOnce(Return(0x12));
+    cpu.clkstep();
+    EXPECT_EQ(getPC(), 0x1234);
+
+    // Page crossing
+    getPC() = 0x0;
+    EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeJMPIND));
+    cpu.clkstep();
+    EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xFF));
+    cpu.clkstep();
+    EXPECT_EQ(getAddrL(), 0xFF);
+    EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+    cpu.clkstep();
+    EXPECT_CALL(*memoryMapper, read(0xABFF, ADDRESS_SPACE::CPU)).WillOnce(Return(0x34));
+    cpu.clkstep();
+    EXPECT_CALL(*memoryMapper, read(0xAB00, ADDRESS_SPACE::CPU)).WillOnce(Return(0x12));
+    cpu.clkstep();
+    EXPECT_EQ(getPC(), 0x1234);
+}
+
+TEST_F(CPUTest, InstructionJSR){
+    byte_t opcodeJSR = 0b00100000;
+
+    getPC() = 0x0;
+    getSP() = 0xFF;
+    EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeJSR));
+    cpu.clkstep();
+    EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+    cpu.clkstep();
+    EXPECT_EQ(getAddrL(), 0xCD);
+    cpu.clkstep(); // Unknown
+    EXPECT_CALL(*memoryMapper, write(0x01FF, ADDRESS_SPACE::CPU, 0x00));
+    cpu.clkstep();
+    EXPECT_EQ(getSP(), 0xFE);
+    EXPECT_CALL(*memoryMapper, write(0x01FE, ADDRESS_SPACE::CPU, 0x02));
+    cpu.clkstep();
+    EXPECT_EQ(getSP(), 0xFD);
+    EXPECT_CALL(*memoryMapper, read(0x2, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+    cpu.clkstep();
+    EXPECT_EQ(getPC(), 0xABCD);
+}
+
+TEST_F(CPUTest, InstructionRTS){
+    byte_t opcodeRTS = 0b01100000;
+
+    getPC() = 0x0;
+    getSP() = 0xFD;
+    EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeRTS));
+    cpu.clkstep();
+    EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+    cpu.clkstep();
+    cpu.clkstep();
+    EXPECT_EQ(getSP(), 0xFE);
+    EXPECT_CALL(*memoryMapper, read(0x01FE, ADDRESS_SPACE::CPU)).WillOnce(Return(0xCD));
+    cpu.clkstep();
+    EXPECT_EQ(getPC(), 0x00CD);
+    EXPECT_EQ(getSP(), 0xFF);
+    EXPECT_CALL(*memoryMapper, read(0x01FF, ADDRESS_SPACE::CPU)).WillOnce(Return(0xAB));
+    cpu.clkstep();
+    EXPECT_EQ(getPC(), 0xABCD);
+    cpu.clkstep();
+    EXPECT_EQ(getPC(), 0xABCE);
+}
+
+TEST_F(CPUTest, InstructionBCC){
+    byte_t opcodeBCC = 0b10010000;
+    byte_t opcodeNOP = 0b11101010;
+
+    // No branch
+    getPC() = 0x0;
+    getStatus() = 0b00000001;
+    EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeBCC));
+    cpu.clkstep();
+    EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x2));
+    cpu.clkstep();
+    EXPECT_EQ(getPC(), 0x2);
+
+    // Branch. No page cross
+    getPC() = 0x0;
+    getStatus() = 0b00000000;
+    EXPECT_CALL(*memoryMapper, read(0x0, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeBCC));
+    cpu.clkstep();
+    EXPECT_CALL(*memoryMapper, read(0x1, ADDRESS_SPACE::CPU)).WillOnce(Return(0x2));
+    cpu.clkstep();
+    EXPECT_EQ(getPC(), 0x2);
+    cpu.clkstep();
+    EXPECT_EQ(getPC(), 0x4);
+
+    // Branch. Page cross upwards
+    getPC() = 0xFD;
+    getStatus() = 0b00000000;
+    EXPECT_CALL(*memoryMapper, read(0xFD, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeBCC));
+    cpu.clkstep();
+    EXPECT_CALL(*memoryMapper, read(0xFE, ADDRESS_SPACE::CPU)).WillOnce(Return(0x1));
+    cpu.clkstep();
+    EXPECT_EQ(getPC(), 0xFF);
+    EXPECT_CALL(*memoryMapper, read(0x00, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+    cpu.clkstep();
+    EXPECT_EQ(getPC(), 0x00);
+    cpu.clkstep();
+    EXPECT_EQ(getPC(), 0x0100);
+
+    // Branch. Page cross downwards
+    getPC() = 0x0100;
+    getStatus() = 0b00000000;
+    EXPECT_CALL(*memoryMapper, read(0x0100, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeBCC));
+    cpu.clkstep();
+    EXPECT_CALL(*memoryMapper, read(0x0101, ADDRESS_SPACE::CPU)).WillOnce(Return(-3));
+    cpu.clkstep();
+    EXPECT_EQ(getPC(), 0x0102);
+    EXPECT_CALL(*memoryMapper, read(0x01FF, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+    cpu.clkstep();
+    EXPECT_EQ(getPC(), 0x01FF);
+    cpu.clkstep();
+    EXPECT_EQ(getPC(), 0x00FF);
+}
+

@@ -9,6 +9,13 @@
 #include "CHIP_8/Idisplay.hpp"
 #include "CHIP_8/IController.hpp"
 #include "CHIP_8/ICPU.hpp"
+#include "NES/IMemoryMapper.hpp"
+
+class MockMemoryMapper : public IMemoryMapper {
+    public:
+        MOCK_METHOD(byte_t, read, (addr_t, ADDRESS_SPACE), (override));
+        MOCK_METHOD(void, write, (addr_t, ADDRESS_SPACE, byte_t), (override));
+};
 
 class MockRAM : public IRAM {
     public:

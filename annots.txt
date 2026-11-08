@@ -36,11 +36,6 @@ Divisão de opcodes:
     BBB - modo de endereçamento
         0b001 - zero page
         0b010 - imediato
-
-Modos de endereçamento do 6502:
-    Imediato - valores logo após opcode
-    Zero page - valor está no endereço 0x00XX, XX é o valor do próximo byte
-    indexado indireto - o valor de X ou Y é somado ao endereço de 16 bits trazido da memória
     
 Update PC: (essa abordagem funciona segundo 6502 User Manual, página 30)
     Somar 1 byte do opcode (sempre)
@@ -52,7 +47,7 @@ Update PC: (essa abordagem funciona segundo 6502 User Manual, página 30)
 
 Status Register:
     76543210
-    NV B IZC
+    NV1BDIZC
     N: Negative - 1 se o resultado da última operação for negativo, 0 cc // espelha o bit 7 (sempre, até para operações unsigned)
     V: oVerflow - 1 se a última operação deu overflow, 0 cc // -128 > resultado > 127 (útil para operações signed, melhor usar carry para unsigned) 
     B: Break - Se uma interrupção foi chamada por uma instrução de break ou por uma interrupção de hardware (???)
@@ -114,3 +109,22 @@ Interpretação dos dados da CHR ROM:
 "An interrupt causes the CPU to save its progress, and jump to code in another location. When this other code, called the “interrupt handler” is complete, it restores its state and can continue processing where it was before." - emulationonline.com
 
 
+=============== REFERENCES ===============
+"The 6502 instruction table is laid out according to a pattern a-b-c, where
+a and b are an octal number each, followed by a group of two binary digits c,
+as in the bit-vector "aaabbbcc"."
+[...]
+"Generally, instructions of a kind are typically found in rows as a combination
+of a and c, and address modes are in columns b.
+However, there are a few exception to this rule, namely, where bits 0 of both
+c and b are low (c = 0, 2; b = 0, 2, 4, 6) and combinations of c and b select
+a group of related operations. (E.g., c=0 ∧ b=4: branch, c=0 ∧ b=6: set flag)"
+https://www.masswerk.at/6502/6502_instruction_set.html
+
+=============== RELATIVE ADDRESSING MODE ===============
+Branch instructions (BCC, BCS, BEQ, BMI, BNE, BPL, BVC, BVS) use relative addressing.
+These instructions can take 2, 3 or 4 cycles to execute. Cycles ar as follows:
+1. Fetch instruction Opcode.
+2. Fetch operand and check the branch condition. If the condition is not met, the instruction ends here.
+3. Add the operand to PCL (the operand may be negative). If this does not cross a page, the instruction ends here.
+4. Fix the high byte of PC to account for the page crossing.

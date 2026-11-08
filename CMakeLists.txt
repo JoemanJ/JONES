@@ -6,13 +6,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(BUILD_SHARED_LIBS FALSE)
 
 ### My libraries ###
-add_library(Chip8Core
-    src/CHIP_8/CPU.cpp
-    src/CHIP_8/RAM.cpp
-    src/CHIP_8/display.cpp
-    src/CHIP_8/controller.cpp
+add_library(NESCore
+    src/NES/6502.cpp
+    include/NES/MemoryMapper.hpp
+    src/NES/MemoryMapper.cpp
+    include/NES/IMemoryMapper.hpp
 )
-target_include_directories(Chip8Core PUBLIC include)
+target_include_directories(NESCore PUBLIC include)
 
 add_library(Emulation
     src/emulation/emulator.cpp
@@ -22,7 +22,7 @@ add_library(Emulation
 target_include_directories(Emulation PUBLIC include)
 target_link_libraries(Emulation
     PUBLIC
-        Chip8Core
+        NESCore
         sfml-system
 )
 
@@ -75,7 +75,7 @@ foreach(test_file ${TEST_SOURCES})
     add_executable(${test_name} ${test_file})
     target_link_libraries(${test_name}
         PRIVATE 
-            Chip8Core
+            NESCore
             Emulation
             gmock
             gtest_main
@@ -87,13 +87,13 @@ endforeach()
 
 # Run all unit tests
 add_executable(unit_tests
-    tests/test_ram.cpp
+    # tests/test_ram.cpp
     tests/test_cpu.cpp
-    tests/test_display.cpp
-    tests/test_controller.cpp
-    tests/test_emulation.cpp
-    tests/test_InputMapper.cpp
-    tests/test_renderer.cpp
+    # tests/test_display.cpp
+    # tests/test_controller.cpp
+    # tests/test_emulation.cpp
+    # tests/test_InputMapper.cpp
+    # tests/test_renderer.cpp
     # Add other test sources here
 )
 
@@ -101,7 +101,7 @@ target_include_directories(unit_tests PUBLIC tests/include)
 
 target_link_libraries(unit_tests
     PRIVATE
-        Chip8Core
+        NESCore
         Emulation
         gmock
         gtest_main
@@ -115,7 +115,7 @@ add_executable(test_interface1
 
 target_link_libraries(test_interface1
     PRIVATE
-        Chip8Core
+        NESCore
         Emulation
         ImGui-SFML::ImGui-SFML
 )
@@ -126,7 +126,7 @@ add_executable(test_interface2
 
 target_link_libraries(test_interface2
     PRIVATE
-        Chip8Core
+        NESCore
         Emulation
         ImGui-SFML::ImGui-SFML
         imgui-filebrowser
@@ -138,7 +138,7 @@ add_executable(test_interface3
 
 target_link_libraries(test_interface3
     PRIVATE
-        Chip8Core
+        NESCore
         Emulation
         ImGui-SFML::ImGui-SFML
         Application

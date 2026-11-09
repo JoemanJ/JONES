@@ -158,53 +158,53 @@ CPU6502::Instruction *CPU6502::decodeInstruction(byte_t opcode)
         case 0b10001100: //4.3.0: STY abs - Store Y absolute
             return &STYABS;
         
-        // case 0b01101001: //3.2.1: ADC # - Add with Carry immediate
-        //     return &ADCIM;
+        case 0b01101001: //3.2.1: ADC # - Add with Carry immediate
+            return &ADCIM;
 
-        // case 0b01100101: //3.1.1: ADC zp - Add with Carry zero page
-        //     return &ADCZP;
+        case 0b01100101: //3.1.1: ADC zp - Add with Carry zero page
+            return &ADCZP;
 
-        // case 0b01110101: //3.5.1: ADC zp, x - Add with Carry zero page X
-        //     return &ADCZPX;
+        case 0b01110101: //3.5.1: ADC zp, x - Add with Carry zero page X
+            return &ADCZPX;
 
-        // case 0b01101101: //3.3.1: ADC abs - Add with Carry absolute
-        //     return &ADCABS;
+        case 0b01101101: //3.3.1: ADC abs - Add with Carry absolute
+            return &ADCABS;
 
-        // case 0b01111101: //3.7.1: ADC abs, x - Add with Carry absolute X
-        //     return &ADCABSX;
+        case 0b01111101: //3.7.1: ADC abs, x - Add with Carry absolute X
+            return &ADCABSX;
 
-        // case 0b01111001: //3.6.1: ADC abs, y - Add with Carry absolute Y
-        //     return &ADCABSY;
+        case 0b01111001: //3.6.1: ADC abs, y - Add with Carry absolute Y
+            return &ADCABSY;
         
-        // case 0b01100001: //3.0.1: ADC X, ind - Add with Carry indexed indirect X
-        //     return &ADCINDX;
+        case 0b01100001: //3.0.1: ADC X, ind - Add with Carry indexed indirect X
+            return &ADCINDX;
 
-        // case 0b01110001: //3.4.1: ADC ind, y - Add with Carry indirect indexed Y
-        //     return &ADCINDY;
+        case 0b01110001: //3.4.1: ADC ind, y - Add with Carry indirect indexed Y
+            return &ADCINDY;
 
-        // case 0b11101001: //7.2.1: SBC # - Subtract with Carry immediate
-        //     return &SBCIM;
+        case 0b11101001: //7.2.1: SBC # - Subtract with Carry immediate
+            return &SBCIM;
         
-        // case 0b11100101: //7.1.1: SBC zp - Subtract with Carry zero page
-        //     return &SBCZP;
+        case 0b11100101: //7.1.1: SBC zp - Subtract with Carry zero page
+            return &SBCZP;
         
-        // case 0b11110101: //7.5.1: SBC zp, x - Subtract with Carry zero page X
-        //     return &SBCZPX;
+        case 0b11110101: //7.5.1: SBC zp, x - Subtract with Carry zero page X
+            return &SBCZPX;
         
-        // case 0b11101101: //7.3.1: SBC abs - Subtract with Carry absolute
-        //     return &SBCABS;
+        case 0b11101101: //7.3.1: SBC abs - Subtract with Carry absolute
+            return &SBCABS;
         
-        // case 0b11111101: //7.7.1: SBC abs, x - Subtract with Carry absolute X
-        //     return &SBCABSX;
+        case 0b11111101: //7.7.1: SBC abs, x - Subtract with Carry absolute X
+            return &SBCABSX;
 
-        // case 0b11111001: //7.6.1: SBC abs, y - Subtract with Carry absolute Y
-        //     return &SBCABSY;
+        case 0b11111001: //7.6.1: SBC abs, y - Subtract with Carry absolute Y
+            return &SBCABSY;
 
-        // case 0b11100001: //7.0.1: SBC X, ind - Subtract with Carry indexed indirect X
-        //     return &SBCINDX;
+        case 0b11100001: //7.0.1: SBC X, ind - Subtract with Carry indexed indirect X
+            return &SBCINDX;
         
-        // case 0b11110001: //7.4.1: SBC ind, y - Subtract with Carry indirect indexed Y
-        //     return &SBCINDY;
+        case 0b11110001: //7.4.1: SBC ind, y - Subtract with Carry indirect indexed Y
+            return &SBCINDY;
 
         case 0b00101001: //1.2.1: AND # - Logical AND immediate
             return &ANDIM;
@@ -326,65 +326,65 @@ CPU6502::Instruction *CPU6502::decodeInstruction(byte_t opcode)
         case 0b00101100: // 1.3.0: BIT abs - Test bits in absolute memory
             return &BITABS;
         
-        // case 0b00000110: // 0.1.2: ASL zp - Arithmetic shift left zero page
-        //     return &ASLZP;
+        case 0b00000110: // 0.1.2: ASL zp - Arithmetic shift left zero page
+            return &ASLZP;
         
-        // case 0b00010110: // 0.5.2: ASL zp, x - Arithmetic shift left zero page X
-        //     return &ASLZPX;
+        case 0b00010110: // 0.5.2: ASL zp, x - Arithmetic shift left zero page X
+            return &ASLZPX;
         
-        // case 0b00001110: // 0.3.2: ASL abs - Arithmetic shift left absolute
-        //     return &ASLABS;
+        case 0b00001110: // 0.3.2: ASL abs - Arithmetic shift left absolute
+            return &ASLABS;
         
-        // case 0b00011110: // 0.7.2: ASL abs, x - Arithmetic shift left absolute X
-        //     return &ASLABSX;
+        case 0b00011110: // 0.7.2: ASL abs, x - Arithmetic shift left absolute X
+            return &ASLABSX;
         
-        // case 0b00001010: // 0.2.2: ASL A - Arithmetic shift left A
-        //     return &ASLACC;
+        case 0b00001010: // 0.2.2: ASL A - Arithmetic shift left A
+            return &ASLACC;
         
-        // case 0b01000110: // 4.1.2: LSR zp - Logical shift right zero page
-        //     return &LSRZP;
+        case 0b01000110: // 4.1.2: LSR zp - Logical shift right zero page
+            return &LSRZP;
         
-        // case 0b01010110: // 4.5.2: LSR zp, x - Logical shift right zero page X
-        //     return &LSRZPX;
+        case 0b01010110: // 4.5.2: LSR zp, x - Logical shift right zero page X
+            return &LSRZPX;
         
-        // case 0b01001110: // 4.3.2: LSR abs - Logical shift right absolute
-        //     return &LSRABS;
+        case 0b01001110: // 4.3.2: LSR abs - Logical shift right absolute
+            return &LSRABS;
         
-        // case 0b01011110: // 4.7.2: LSR abs, x - Logical shift right absolute X
-        //     return &LSRABSX;
+        case 0b01011110: // 4.7.2: LSR abs, x - Logical shift right absolute X
+            return &LSRABSX;
         
-        // case 0b01001010: // 4.2.2: LSR A - Logical shift right A
-        //     return &LSRACC;
+        case 0b01001010: // 4.2.2: LSR A - Logical shift right A
+            return &LSRACC;
         
-        // case 0b00100110: // 2.1.2: ROL zp - Rotate left zero page
-        //     return &ROLZP;
+        case 0b00100110: // 2.1.2: ROL zp - Rotate left zero page
+            return &ROLZP;
         
-        // case 0b00110110: // 2.5.2: ROL zp, x - Rotate left zero page X
-        //     return &ROLZPX;
+        case 0b00110110: // 2.5.2: ROL zp, x - Rotate left zero page X
+            return &ROLZPX;
         
-        // case 0b00101110: // 2.3.2: ROL abs - Rotate left absolute
-        //     return &ROLABS;
+        case 0b00101110: // 2.3.2: ROL abs - Rotate left absolute
+            return &ROLABS;
         
-        // case 0b00111110: // 2.7.2: ROL abs, x - Rotate left absolute X
-        //     return &ROLABSX;
+        case 0b00111110: // 2.7.2: ROL abs, x - Rotate left absolute X
+            return &ROLABSX;
         
-        // case 0b00101010: // 2.2.2: ROL A - Rotate left A
-        //     return &ROLACC;
+        case 0b00101010: // 2.2.2: ROL A - Rotate left A
+            return &ROLACC;
         
-        // case 0b01100110: // 6.1.2: ROR zp - Rotate right zero page
-        //     return &RORZP;
+        case 0b01100110: // 6.1.2: ROR zp - Rotate right zero page
+            return &RORZP;
         
-        // case 0b01110110: // 6.5.2: ROR zp, x - Rotate right zero page X
-        //     return &RORZPX;
+        case 0b01110110: // 6.5.2: ROR zp, x - Rotate right zero page X
+            return &RORZPX;
         
-        // case 0b01101110: // 6.3.2: ROR abs - Rotate right absolute
-        //     return &RORABS;
+        case 0b01101110: // 6.3.2: ROR abs - Rotate right absolute
+            return &RORABS;
         
-        // case 0b01111110: // 6.7.2: ROR abs, x - Rotate right absolute X
-        //     return &RORABSX;
+        case 0b01111110: // 6.7.2: ROR abs, x - Rotate right absolute X
+            return &RORABSX;
         
-        // case 0b01101010: // 6.2.2: ROR A - Rotate right A
-        //     return &RORACC;
+        case 0b01101010: // 6.2.2: ROR A - Rotate right A
+            return &RORACC;
         
         case 0b11000110: // 6.1.3: DEC zp - Decrement memory zero page
             return &DECZP;
@@ -422,29 +422,29 @@ CPU6502::Instruction *CPU6502::decodeInstruction(byte_t opcode)
         case 0b11001000: // 7.2.0: INY - Increment Y
             return &INY;
         
-        case 0b10010000: // BCC - Branch if carry clear
+        case 0b10010000: // 4.4.0 BCC - Branch if carry clear
             return &BCC;
         
-        // case 0b10110000: // BCS - Branch if carry set
-        //     return &BCS;
+        case 0b10110000: // 5.4.0 BCS - Branch if carry set
+            return &BCS;
         
-        // case 0b11110000: // BEQ - Branch if equal
-        //     return &BEQ;
+        case 0b11110000: // 7.4.0 BEQ - Branch if equal
+            return &BEQ;
         
-        // case 0b00110000: // BMI - Branch if minus
-        //     return &BMI;
+        case 0b00110000: // 1.4.0 BMI - Branch if minus
+            return &BMI;
         
-        // case 0b11010000: // BNE - Branch if not equal
-        //     return &BNE;
+        case 0b11010000: // 5.4.0 BNE - Branch if not equal
+            return &BNE;
         
-        // case 0b00010000: // BPL - Branch if positive
-        //     return &BPL;
+        case 0b00010000: // 0.4.0 BPL - Branch if positive
+            return &BPL;
         
-        // case 0b01010000: // BVC - Branch if overflow clear
-        //     return &BVC;
+        case 0b01010000: // 2.4.0 BVC - Branch if overflow clear
+            return &BVC;
         
-        // case 0b01110000: // BVS - Branch if overflow set
-        //     return &BVS;
+        case 0b01110000: // 3.4.0 BVS - Branch if overflow set
+            return &BVS;
         
         case 0b01001100: // 2.3.0 JMP abs - Jump absolute
             return &JMPABS;
@@ -1045,42 +1045,65 @@ void CPU6502::xorAAbsolute(){
 void CPU6502::bitTestZeroPage(){
     IDL = read(0x00FF & IAL);
     byte_t test = IDL & A;
+
     updateFlagZ(test);
     if(0b10000000 & IDL) setFlagN();
+    else clearFlagC();
+
     if(0b01000000 & IDL) setFlagV();
+    else clearFlagV();
 }
 
 void CPU6502::bitTestAbsolute(){
     addrL = IAL;
     IDL = read(getAddr());
     byte_t test = IDL & A;
+
     updateFlagZ(test);
     if(0b10000000 & IDL) setFlagN();
+    else clearFlagC();
+
     if(0b01000000 & IDL) setFlagV();
+    else clearFlagV();
 }
 
 
 
 void CPU6502::compareAImmediate(){
     byte_t operand = read(PC); 
+
     if(A>=operand) setFlagC();
+    else clearFlagC();
+
     if(A==operand) setFlagZ();
+    else clearFlagZ();
+
     updateFlagN(A-operand);
     PC++;
 }
 
 void CPU6502::compareAZeroPage(){
     byte_t operand = read(0x00FF & IAL); 
+
     if(A>=operand) setFlagC();
+    else clearFlagC();
+
     if(A==operand) setFlagZ();
+    else clearFlagZ();
+
     updateFlagN(A-operand);
 }
 
 void CPU6502::compareAAbsolute(){
     addrL = IAL;
     byte_t operand = read(getAddr()); 
+
     if(A>=operand) setFlagC();
+    else clearFlagC();
+
     if(A==operand) setFlagZ();
+    else clearFlagZ();
+
     updateFlagN(A-operand);
 }
 
@@ -1088,24 +1111,39 @@ void CPU6502::compareAAbsolute(){
 
 void CPU6502::compareXImmediate(){
     byte_t operand = read(PC); 
+
     if(X>=operand) setFlagC();
+    else clearFlagC();
+
     if(X==operand) setFlagZ();
+    else clearFlagZ();
+
     updateFlagN(X-operand);
     PC++;
 }
 
 void CPU6502::compareXZeroPage(){
     byte_t operand = read(0x00FF & IAL); 
+
     if(X>=operand) setFlagC();
+    else clearFlagC();
+
     if(X==operand) setFlagZ();
+    else clearFlagZ();
+
     updateFlagN(X-operand);
 }
 
 void CPU6502::compareXAbsolute(){
     addrL = IAL;
     byte_t operand = read(getAddr()); 
+
     if(X>=operand) setFlagC();
+    else clearFlagC();
+
     if(X==operand) setFlagZ();
+    else clearFlagZ();
+
     updateFlagN(X-operand);
 }
 
@@ -1113,24 +1151,39 @@ void CPU6502::compareXAbsolute(){
 
 void CPU6502::compareYImmediate(){
     byte_t operand = read(PC); 
+
     if(Y>=operand) setFlagC();
+    else clearC();
+
     if(Y==operand) setFlagZ();
+    else clearFlagZ();
+
     updateFlagN(Y-operand);
     PC++;
 }
 
 void CPU6502::compareYZeroPage(){
     byte_t operand = read(0x00FF & IAL); 
+
     if(Y>=operand) setFlagC();
+    else clearC();
+
     if(Y==operand) setFlagZ();
+    else clearFlagZ();
+
     updateFlagN(Y-operand);
 }
 
 void CPU6502::compareYAbsolute(){
     addrL = IAL;
     byte_t operand = read(getAddr()); 
+
     if(Y>=operand) setFlagC();
+    else clearC();
+
     if(Y==operand) setFlagZ();
+    else clearFlagZ();
+
     updateFlagN(Y-operand);
 }
 
@@ -1202,4 +1255,321 @@ void CPU6502::checkBCCCondition(){
     if(getFlagC()){
         currentInstructionStep += 2;
     }
+}
+
+void CPU6502::checkBCSCondition(){
+    IDL = read(PC);
+    PC++;
+
+    // Contition not met -> skip to end of instruction
+    if(!getFlagC()){
+        currentInstructionStep += 2;
+    }
+}
+
+void CPU6502::checkBEQCondition(){
+    IDL = read(PC);
+    PC++;
+
+    // Contition not met -> skip to end of instruction
+    if(!getFlagZ()){
+        currentInstructionStep += 2;
+    }
+}
+
+void CPU6502::checkBMICondition(){
+    IDL = read(PC);
+    PC++;
+
+    // Contition not met -> skip to end of instruction
+    if(!getFlagN()){
+        currentInstructionStep += 2;
+    }
+}
+
+void CPU6502::checkBNECondition(){
+    IDL = read(PC);
+    PC++;
+
+    // Contition not met -> skip to end of instruction
+    if(getFlagZ()){
+        currentInstructionStep += 2;
+    }
+}
+
+void CPU6502::checkBPLCondition(){
+    IDL = read(PC);
+    PC++;
+
+    // Contition not met -> skip to end of instruction
+    if(getFlagN()){
+        currentInstructionStep += 2;
+    }
+}
+
+void CPU6502::checkBVCCondition(){
+    IDL = read(PC);
+    PC++;
+
+    // Contition not met -> skip to end of instruction
+    if(getFlagV()){
+        currentInstructionStep += 2;
+    }
+}
+
+void CPU6502::checkBVSCondition(){
+    IDL = read(PC);
+    PC++;
+
+    // Contition not met -> skip to end of instruction
+    if(!getFlagV()){
+        currentInstructionStep += 2;
+    }
+}
+
+
+
+void CPU6502::aslAccumulator(){
+    read(PC); // Dummy read
+    if (A & 0b10000000){
+        setFlagC();
+    } else clearFlagC();
+    
+    
+    A = A << 1;
+
+    updateFlagN(A);
+    updateFlagZ(A);
+}
+
+void CPU6502::aslIDL(){
+    write(addrH<<8 | IAL, IDL); // Dummy write
+
+    if (IDL & 0b10000000){
+        setFlagC();
+    } else clearFlagC();
+    
+    IDL = IDL << 1;
+
+    updateFlagN(A);
+    updateFlagZ(A);
+}
+
+void CPU6502::lsrAccumulator(){
+    read(PC); // Dummy read
+    if (A & 0b00000001){
+        setFlagC();
+    } else clearFlagC();
+    
+    
+    A = A >> 1;
+
+    updateFlagN(A);
+    updateFlagZ(A);
+}
+
+void CPU6502::lsrIDL(){
+    write(addrH<<8 | IAL, IDL); // Dummy write
+
+    if (IDL & 0b00000001){
+        setFlagC();
+    } else clearFlagC();
+    
+    IDL = IDL >> 1;
+
+    updateFlagN(A);
+    updateFlagZ(A);
+}
+
+void CPU6502::rolAccumulator(){
+    read(PC); // Dummy read
+
+    bool C = getFlagC();
+
+    if (A & 0b10000000){
+        setFlagC();
+    } else clearFlagC();
+    
+    A = A << 1;
+    if(C){
+        A |= 0b0000001;
+    }
+
+    updateFlagN(A);
+    updateFlagZ(A);
+}
+
+void CPU6502::rolIDL(){
+    write(addrH<<8 | IAL, IDL); // Dummy write
+
+    bool C = getFlagC();
+
+    if (IDL & 0b10000000){
+        setFlagC();
+    } else clearFlagC();
+    
+    IDL = IDL << 1;
+    if(C){
+        IDL |= 0b0000001;
+    }
+
+    updateFlagN(A);
+    updateFlagZ(A);
+}
+
+void CPU6502::rorAccumulator(){
+    read(PC); // Dummy read
+
+    bool C = getFlagC();
+
+    if (A & 0b00000001){
+        setFlagC();
+    } else clearFlagC();
+    
+    A = A >> 1;
+    if(C){
+        A |= 0b10000000;
+    }
+
+    updateFlagN(A);
+    updateFlagZ(A);
+}
+
+void CPU6502::rorIDL(){
+    write(addrH<<8 | IAL, IDL); // Dummy write
+
+    bool C = getFlagC();
+
+    if (IDL & 0b00000001){
+        setFlagC();
+    } else clearFlagC();
+    
+    IDL = IDL >> 1;
+    if(C){
+        IDL |= 0b10000000;
+    }
+
+    updateFlagN(A);
+    updateFlagZ(A);
+}
+
+
+void CPU6502::adcAImmediate() {
+    byte_t operand = read(PC); 
+
+    byte_t C = 0;
+    if(getFlagC()) C = 1;
+
+    if((A + operand + C) > 255) setFlagC();
+    else clearFlagC();
+
+    byte_t result = A + operand + C;
+    if((A ^ result) & (operand ^ result) & 0b10000000) setFlagV();
+    else clearFlagV();
+
+    A = result;
+
+    updateFlagN(A); 
+    updateFlagZ(A);
+    PC++;
+}
+
+void CPU6502::adcAZeroPage() { 
+    byte_t operand = read(0x00FF & IAL); 
+
+    byte_t C = 0;
+    if(getFlagC()) C = 1;
+
+    if((A + operand + C) > 255) setFlagC();
+    else clearFlagC();
+
+    byte_t result = A + operand + C;
+    if((A ^ result) & (operand ^ result) & 0b10000000) setFlagV();
+    else clearFlagV();
+
+    A = result;
+
+    updateFlagN(A);
+    updateFlagZ(A);
+}
+
+void CPU6502::adcAAbsolute(){
+    addrL = IAL;
+    byte_t operand = read(getAddr());
+
+    byte_t C = 0;
+    if(getFlagC()) C = 1;
+
+    if((A + operand + C) > 255) setFlagC();
+    else clearFlagC();
+
+    byte_t result = A + operand + C;
+    if((A ^ result) & (operand ^ result) & 0b10000000) setFlagV();
+    else clearFlagV();
+
+    A = result;
+
+    updateFlagN(A);
+    updateFlagZ(A);
+}
+
+
+
+void CPU6502::sbcAImmediate() {
+    byte_t operand = read(PC); 
+
+    byte_t C = 0;
+    if(!getFlagC()) C = 1;
+
+    if((A - operand - C) >= 0) setFlagC();
+    else clearFlagC();
+
+    byte_t result = A - operand - C;
+    if((A ^ result) & ((~operand) ^ result) & 0b10000000) setFlagV();
+    else clearFlagV();
+
+    A = result;
+
+    updateFlagN(A); 
+    updateFlagZ(A);
+    PC++;
+}
+
+void CPU6502::sbcAZeroPage() { 
+    byte_t operand = read(0x00FF & IAL); 
+
+    byte_t C = 0;
+    if(!getFlagC()) C = 1;
+
+    if((A - operand - C) >= 0) setFlagC();
+    else clearFlagC();
+
+    byte_t result = A - operand - C;
+    if((A ^ result) & ((!operand) ^ result) & 0b10000000) setFlagV();
+    else clearFlagV();
+
+    A = result;
+
+    updateFlagN(A);
+    updateFlagZ(A);
+}
+
+void CPU6502::sbcAAbsolute(){
+    addrL = IAL;
+    byte_t operand = read(getAddr());
+
+    byte_t C = 0;
+    if(!getFlagC()) C = 1;
+
+    if((A - operand - C) >= 0) setFlagC();
+    else clearFlagC();
+
+    byte_t result = A - operand - C;
+    if((A ^ result) & ((!operand) ^ result) & 0b10000000) setFlagV();
+    else clearFlagV();
+
+    A = result;
+
+    updateFlagN(A);
+    updateFlagZ(A);
 }

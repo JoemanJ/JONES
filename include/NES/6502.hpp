@@ -218,6 +218,30 @@ class CPU6502{
         void branch();
         void fixPCHighByte();
         void checkBCCCondition();
+        void checkBCSCondition();
+        void checkBEQCondition();
+        void checkBMICondition();
+        void checkBNECondition();
+        void checkBPLCondition();
+        void checkBVCCondition();
+        void checkBVSCondition();
+
+        void aslAccumulator();
+        void aslIDL();
+        void lsrAccumulator();
+        void lsrIDL();
+        void rolAccumulator();
+        void rolIDL();
+        void rorAccumulator();
+        void rorIDL();
+
+        void adcAImmediate();
+        void adcAZeroPage();
+        void adcAAbsolute();
+
+        void sbcAImmediate();
+        void sbcAZeroPage();
+        void sbcAAbsolute();
 
         //////////////////
         // Instructions //
@@ -1269,6 +1293,466 @@ class CPU6502{
                 &CPU6502::checkBCCCondition,
                 &CPU6502::branch,
                 &CPU6502::fixPCHighByte
+            }
+        };
+
+        Instruction BCS = {
+            .name = "Branch if carry set",
+            .mnemonic = "BCS",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::checkBCSCondition,
+                &CPU6502::branch,
+                &CPU6502::fixPCHighByte
+            }
+        };
+
+        Instruction BEQ = {
+            .name = "Branch if equal",
+            .mnemonic = "BEQ",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::checkBEQCondition,
+                &CPU6502::branch,
+                &CPU6502::fixPCHighByte
+            }
+        };
+
+        Instruction BMI = {
+            .name = "Branch if minus",
+            .mnemonic = "BMI",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::checkBMICondition,
+                &CPU6502::branch,
+                &CPU6502::fixPCHighByte
+            }
+        };
+
+        Instruction BNE = {
+            .name = "Branch if not equal",
+            .mnemonic = "BNE",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::checkBNECondition,
+                &CPU6502::branch,
+                &CPU6502::fixPCHighByte
+            }
+        };
+
+        Instruction BPL = {
+            .name = "Branch if plus",
+            .mnemonic = "BPL",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::checkBPLCondition,
+                &CPU6502::branch,
+                &CPU6502::fixPCHighByte
+            }
+        };
+
+        Instruction BVC = {
+            .name = "Branch if overflow clear",
+            .mnemonic = "BCV",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::checkBVCCondition,
+                &CPU6502::branch,
+                &CPU6502::fixPCHighByte
+            }
+        };
+
+        Instruction BVS = {
+            .name = "Branch if overflow set",
+            .mnemonic = "BCS",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::checkBVSCondition,
+                &CPU6502::branch,
+                &CPU6502::fixPCHighByte
+            }
+        };
+
+        Instruction ASLACC = {
+            .name = "Arithmetic shift left (accumulator)",
+            .mnemonic = "ASL",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::aslAccumulator
+            }
+        };
+
+        Instruction ASLZP = {
+            .name = "Arithmetic shift left (zero page)",
+            .mnemonic = "ASL",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::loadIDLZeroPage,
+                &CPU6502::aslIDL,
+                &CPU6502::storeIDLZeroPage
+            }
+        };
+
+        Instruction ASLZPX = {
+            .name = "Arithmetic shift left (zero page X)",
+            .mnemonic = "ASL",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::addXToAddrL,
+                &CPU6502::loadIDLZeroPage,
+                &CPU6502::aslIDL,
+                &CPU6502::storeIDLZeroPage
+            }
+        };
+
+        Instruction ASLABS = {
+            .name = "Arithmetic shift left (absolute)",
+            .mnemonic = "ASL",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::fetchAddrH,
+                &CPU6502::loadIDLAbsolute,
+                &CPU6502::aslIDL,
+                &CPU6502::storeIDLAbsolute
+            }
+        };
+
+        Instruction ASLABSX = {
+            .name = "Arithmetic shift left (absolute X)",
+            .mnemonic = "ASL",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::fetchAddrHAddXToAddrLAndCheckPageCross,
+                &CPU6502::fixAddrHighByte,
+                &CPU6502::loadIDLAbsolute,
+                &CPU6502::aslIDL,
+                &CPU6502::storeIDLAbsolute
+            }
+        };
+
+        Instruction LSRACC = {
+            .name = "Logic shift right (accumulator)",
+            .mnemonic = "LSR",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::lsrAccumulator
+            }
+        };
+
+        Instruction LSRZP = {
+            .name = "Logic shift right (zero page)",
+            .mnemonic = "LSR",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::loadIDLZeroPage,
+                &CPU6502::lsrIDL,
+                &CPU6502::storeIDLZeroPage
+            }
+        };
+
+        Instruction LSRZPX = {
+            .name = "Logic shift right (zero page X)",
+            .mnemonic = "LSR",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::addXToAddrL,
+                &CPU6502::loadIDLZeroPage,
+                &CPU6502::lsrIDL,
+                &CPU6502::storeIDLZeroPage
+            }
+        };
+
+        Instruction LSRABS = {
+            .name = "Logic shift right (absolute)",
+            .mnemonic = "LSR",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::fetchAddrH,
+                &CPU6502::loadIDLAbsolute,
+                &CPU6502::lsrIDL,
+                &CPU6502::storeIDLAbsolute
+            }
+        };
+
+        Instruction LSRABSX = {
+            .name = "Logic shift right (absolute X)",
+            .mnemonic = "LSR",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::fetchAddrHAddXToAddrLAndCheckPageCross,
+                &CPU6502::fixAddrHighByte,
+                &CPU6502::loadIDLAbsolute,
+                &CPU6502::lsrIDL,
+                &CPU6502::storeIDLAbsolute
+            }
+        };
+
+        Instruction ROLACC = {
+            .name = "Rotate left (accumulator)",
+            .mnemonic = "ROL",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::rolAccumulator
+            }
+        };
+
+        Instruction ROLZP = {
+            .name = "Rotate left (zero page)",
+            .mnemonic = "ROL",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::loadIDLZeroPage,
+                &CPU6502::rolIDL,
+                &CPU6502::storeIDLZeroPage
+            }
+        };
+
+        Instruction ROLZPX = {
+            .name = "Rotate left (zero page X)",
+            .mnemonic = "ROL",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::addXToAddrL,
+                &CPU6502::loadIDLZeroPage,
+                &CPU6502::rolIDL,
+                &CPU6502::storeIDLZeroPage
+            }
+        };
+
+        Instruction ROLABS = {
+            .name = "Rotate left (absolute)",
+            .mnemonic = "ROL",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::fetchAddrH,
+                &CPU6502::loadIDLAbsolute,
+                &CPU6502::rolIDL,
+                &CPU6502::storeIDLAbsolute
+            }
+        };
+
+        Instruction ROLABSX = {
+            .name = "Rotate left (absolute X)",
+            .mnemonic = "ROL",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::fetchAddrHAddXToAddrLAndCheckPageCross,
+                &CPU6502::fixAddrHighByte,
+                &CPU6502::loadIDLAbsolute,
+                &CPU6502::rolIDL,
+                &CPU6502::storeIDLAbsolute
+            }
+        };
+
+        Instruction RORACC = {
+            .name = "Rotate right (accumulator)",
+            .mnemonic = "ROR",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::rorAccumulator
+            }
+        };
+
+        Instruction RORZP = {
+            .name = "Rotate right (zero page)",
+            .mnemonic = "ROR",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::loadIDLZeroPage,
+                &CPU6502::rorIDL,
+                &CPU6502::storeIDLZeroPage
+            }
+        };
+
+        Instruction RORZPX = {
+            .name = "Rotate right (zero page X)",
+            .mnemonic = "ROR",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::addXToAddrL,
+                &CPU6502::loadIDLZeroPage,
+                &CPU6502::rorIDL,
+                &CPU6502::storeIDLZeroPage
+            }
+        };
+
+        Instruction RORABS = {
+            .name = "Rotate right (absolute)",
+            .mnemonic = "ROR",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::fetchAddrH,
+                &CPU6502::loadIDLAbsolute,
+                &CPU6502::rorIDL,
+                &CPU6502::storeIDLAbsolute
+            }
+        };
+
+        Instruction RORABSX = {
+            .name = "Rotate right (absolute X)",
+            .mnemonic = "ROR",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::fetchAddrHAddXToAddrLAndCheckPageCross,
+                &CPU6502::fixAddrHighByte,
+                &CPU6502::loadIDLAbsolute,
+                &CPU6502::rorIDL,
+                &CPU6502::storeIDLAbsolute
+            }
+        };
+
+        Instruction ADCIM = {
+            .name = "Add with carry (immediate)",
+            .mnemonic = "ADC",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::adcAImmediate
+            }
+        };
+
+        Instruction ADCZP = {
+            .name = "Add with carry (zero page)",
+            .mnemonic = "ADC",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::adcAZeroPage
+            }
+        };
+
+        Instruction ADCZPX = {
+            .name = "Add with carry (zero page, X)",
+            .mnemonic = "ADC",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::addXToAddrL,
+                &CPU6502::adcAZeroPage
+            }
+        };
+
+        Instruction ADCABS = {
+            .name = "Add with carry (absolute)",
+            .mnemonic = "ADC",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::fetchAddrH,
+                &CPU6502::adcAAbsolute
+            }
+        };
+
+        Instruction ADCABSX = {
+            .name = "Add with carry (absolute, X)",
+            .mnemonic = "ADC",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::fetchAddrHAddXToAddrLAndSkipNextStepIfPageCrossed,
+                &CPU6502::fixAddrHighByte,
+                &CPU6502::adcAAbsolute
+            }
+        };
+
+        Instruction ADCABSY = {
+            .name = "Add with carry (absolute, Y)",
+            .mnemonic = "ADC",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::fetchAddrHAddYToAddrLAndSkipNextStepIfPageCrossed,
+                &CPU6502::fixAddrHighByte,
+                &CPU6502::adcAAbsolute
+            }
+        };
+
+        Instruction ADCINDX = {
+            .name = "Add with carry (indexed indirect, X)",
+            .mnemonic = "ADC",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::addXToAddrL,
+                &CPU6502::fetchAddrLFromZeroPageIAL,
+                &CPU6502::fetchAddrHFromZeroPageIAL,
+                &CPU6502::adcAAbsolute
+            }
+        };
+
+        Instruction ADCINDY = {
+            .name = "Add with carry (indirect indexed, Y)",
+            .mnemonic = "ADC",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::fetchAddrLFromZeroPageIAL,
+                &CPU6502::fetchAddrHFromZeroPageIALAddYToAddrLAndSkipNextStepIfPageCrossed,
+                &CPU6502::fixAddrHighByte,
+                &CPU6502::adcAAbsolute
+            }
+        };
+
+        Instruction SBCIM = {
+            .name = "Subtract with carry (immediate)",
+            .mnemonic = "SBC",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::sbcAImmediate
+            }
+        };
+
+        Instruction SBCZP = {
+            .name = "Subtract with carry (zero page)",
+            .mnemonic = "SBC",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::sbcAZeroPage
+            }
+        };
+
+        Instruction SBCZPX = {
+            .name = "Subtract with carry (zero page, X)",
+            .mnemonic = "SBC",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::addXToAddrL,
+                &CPU6502::sbcAZeroPage
+            }
+        };
+
+        Instruction SBCABS = {
+            .name = "Subtract with carry (absolute)",
+            .mnemonic = "SBC",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::fetchAddrH,
+                &CPU6502::sbcAAbsolute
+            }
+        };
+
+        Instruction SBCABSX = {
+            .name = "Subtract with carry (absolute, X)",
+            .mnemonic = "SBC",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::fetchAddrHAddXToAddrLAndSkipNextStepIfPageCrossed,
+                &CPU6502::fixAddrHighByte,
+                &CPU6502::sbcAAbsolute
+            }
+        };
+
+        Instruction SBCABSY = {
+            .name = "Subtract with carry (absolute, Y)",
+            .mnemonic = "SBC",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::fetchAddrHAddYToAddrLAndSkipNextStepIfPageCrossed,
+                &CPU6502::fixAddrHighByte,
+                &CPU6502::sbcAAbsolute
+            }
+        };
+
+        Instruction SBCINDX = {
+            .name = "Subtract with carry (indexed indirect, X)",
+            .mnemonic = "SBC",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::addXToAddrL,
+                &CPU6502::fetchAddrLFromZeroPageIAL,
+                &CPU6502::fetchAddrHFromZeroPageIAL,
+                &CPU6502::sbcAAbsolute
+            }
+        };
+
+        Instruction SBCINDY = {
+            .name = "Subtract with carry (indirect indexed, Y)",
+            .mnemonic = "SBC",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::fetchAddrL,
+                &CPU6502::fetchAddrLFromZeroPageIAL,
+                &CPU6502::fetchAddrHFromZeroPageIALAddYToAddrLAndSkipNextStepIfPageCrossed,
+                &CPU6502::fixAddrHighByte,
+                &CPU6502::sbcAAbsolute
             }
         };
 };

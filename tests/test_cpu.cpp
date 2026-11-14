@@ -4541,4 +4541,33 @@ TEST_F(CPUTest, InstructionSBCIndirectY){
     EXPECT_EQ(getA(), 0xF0);
 }
 
+TEST_F(CPUTest, InstructionBRK){
+    byte_t opcodeBRK = 0b00000000;
+    
+    getPC() = 0x4200;
+    getSP() = 0xFF;
+    getStatus() = 0b11111011;
+    EXPECT_CALL(*memoryMapper, read(0x4200, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeBRK));
+    cpu.clkstep();
+    EXPECT_CALL(*memoryMapper, read(0x4201, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+    cpu.clkstep();
+    EXPECT_EQ(getPC(), 0x4202);
+    EXPECT_CALL(*memoryMapper, write(0x1FF, ADDRESS_SPACE::CPU, 0x42));
+    cpu.clkstep();
+    EXPECT_EQ(getSP(), 0xFE);
+    EXPECT_CALL(*memoryMapper, write(0x1FE, ADDRESS_SPACE::CPU, 0x02));
+    cpu.clkstep();
+    EXPECT_EQ(getSP(), 0xFD);
+    EXPECT_CALL(*memoryMapper, write(0x1FD, ADDRESS_SPACE::CPU, 0b11111011));
+    cpu.clkstep();
+    EXPECT_EQ(getSP(), 0xFC);
+    EXPECT_EQ(getStatus(), 0b11111111);
+    EXPECT_CALL(*memoryMapper, read(0xFFFE, ADDRESS_SPACE::CPU)).WillOnce(Return(0x34));
+    cpu.clkstep();
+    EXPECT_EQ(getPC() & 0x00FF, 0x34);
+    EXPECT_CALL(*memoryMapper, read(0xFFFF, ADDRESS_SPACE::CPU)).WillOnce(Return(0x12));
+    cpu.clkstep();
+    EXPECT_EQ(getPC() & 0xFF00, 0x1200);
+}
+
 

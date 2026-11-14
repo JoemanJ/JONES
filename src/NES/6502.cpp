@@ -461,8 +461,8 @@ CPU6502::Instruction *CPU6502::decodeInstruction(byte_t opcode)
         // case 0b01000000: // RTI - Return from interrupt
         //     return &RTI;
         
-        // case 0b00000000: // BRK - Force interrupt
-        //     return &BRK;
+        case 0b00000000: // BRK - Force interrupt
+            return &BRK;
         
         case 0b01001000: // 2.2.0 PHA - Push A
             return &PHA;
@@ -851,6 +851,10 @@ void CPU6502::incrementPC(){
     PC++;
 }
 
+void CPU6502::readNextInstructionAndIncrementPC(){
+    read(PC++);
+}
+
 
 
 void CPU6502::pushA(){
@@ -867,13 +871,19 @@ void CPU6502::pushStatus(){
     SP--;
 }
 
+void CPU6502::pushStatusAndSetI(){
+    write(0x100 + SP, status | 0b00010000); // B flag is always pushed as 1
+    status |= 0b0000100;
+    SP--;
+}
+
 void CPU6502::pullStatus(){
     // Bits 4 and 5 are always ignored on pull
     status = (0b11001111 & read(0x100 + SP)) | (0b00110000 & status) ;
 }
 
 void CPU6502::pushPCH(){
-    write(0x100 + SP, (0xFF00 & PC));
+    write(0x100 + SP, (0xFF00 & PC) >> 8);
     SP--;
 }
 
@@ -1572,4 +1582,23 @@ void CPU6502::sbcAAbsolute(){
 
     updateFlagN(A);
     updateFlagZ(A);
+}
+
+
+
+void CPU6502::fetchIRQL(){
+    setPCL(read(0xFFFE));
+}
+
+void CPU6502::fetchIRQH(){
+    setPCH(read(0xFFFF));
+}
+
+void CPU6502::fetchNMIL()
+{
+    setPCL(read(0xFFFA));
+}
+
+void CPU6502::fetchNMIH(){
+    setPCH(read(0xFFFB));
 }

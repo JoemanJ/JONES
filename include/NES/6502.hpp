@@ -158,10 +158,12 @@ class CPU6502{
         void nop();
         void unknown();
         void incrementPC();
+        void readNextInstructionAndIncrementPC();
 
         void pushA();
         void pullA();
         void pushStatus();
+        void pushStatusAndSetI();
         void pullStatus();
         void pushPCH();
         void pullPCH();
@@ -242,6 +244,11 @@ class CPU6502{
         void sbcAImmediate();
         void sbcAZeroPage();
         void sbcAAbsolute();
+
+        void fetchIRQL();
+        void fetchIRQH();
+        void fetchNMIL();
+        void fetchNMIH();
 
         //////////////////
         // Instructions //
@@ -1753,6 +1760,19 @@ class CPU6502{
                 &CPU6502::fetchAddrHFromZeroPageIALAddYToAddrLAndSkipNextStepIfPageCrossed,
                 &CPU6502::fixAddrHighByte,
                 &CPU6502::sbcAAbsolute
+            }
+        };
+
+        Instruction BRK = {
+            .name = "Break",
+            .mnemonic = "SBC",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::readNextInstructionAndIncrementPC,
+                &CPU6502::pushPCH,
+                &CPU6502::pushPCL,
+                &CPU6502::pushStatusAndSetI,
+                &CPU6502::fetchIRQL,
+                &CPU6502::fetchIRQH,
             }
         };
 };

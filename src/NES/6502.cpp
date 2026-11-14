@@ -458,8 +458,8 @@ CPU6502::Instruction *CPU6502::decodeInstruction(byte_t opcode)
         case 0b01100000: // RTS - Return from subroutine
             return &RTS;
 
-        // case 0b01000000: // RTI - Return from interrupt
-        //     return &RTI;
+        case 0b01000000: // RTI - Return from interrupt
+            return &RTI;
         
         case 0b00000000: // BRK - Force interrupt
             return &BRK;
@@ -879,7 +879,13 @@ void CPU6502::pushStatusAndSetI(){
 
 void CPU6502::pullStatus(){
     // Bits 4 and 5 are always ignored on pull
-    status = (0b11001111 & read(0x100 + SP)) | (0b00110000 & status) ;
+    status = (0b11001111 & read(0x100 + SP)) | (0b00110000 & status);
+}
+
+void CPU6502::pullStatusAndIncrementSP(){
+    // Bits 4 and 5 are always ignored on pull
+    status = (0b11001111 & read(0x100 + SP)) | (0b00110000 & status);
+    SP++;
 }
 
 void CPU6502::pushPCH(){

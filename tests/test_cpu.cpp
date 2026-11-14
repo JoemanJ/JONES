@@ -4570,4 +4570,30 @@ TEST_F(CPUTest, InstructionBRK){
     EXPECT_EQ(getPC() & 0xFF00, 0x1200);
 }
 
+TEST_F(CPUTest, InstructionRTI){
+    byte_t opcodeRTI = 0b01000000;
+    
+    getPC() = 0xFFFE;
+    getSP() = 0xFC;
+    getStatus() = 0b00000000;
+    EXPECT_CALL(*memoryMapper, read(0xFFFE, ADDRESS_SPACE::CPU)).WillOnce(Return(opcodeRTI));
+    cpu.clkstep();
+    EXPECT_CALL(*memoryMapper, read(0xFFFF, ADDRESS_SPACE::CPU)).WillOnce(Return(0xF0));
+    cpu.clkstep();
+    cpu.clkstep();
+    EXPECT_EQ(getSP(), 0xFD);
+    EXPECT_CALL(*memoryMapper, read(0x1FD, ADDRESS_SPACE::CPU)).WillOnce(Return(0b11111111));
+    cpu.clkstep();
+    EXPECT_EQ(getStatus(), 0b11001111);
+    EXPECT_EQ(getSP(), 0xFE);
+    EXPECT_CALL(*memoryMapper, read(0x1FE, ADDRESS_SPACE::CPU)).WillOnce(Return(0x34));
+    cpu.clkstep();
+    EXPECT_EQ(getPC() & 0x00FF, 0x0034);
+    EXPECT_EQ(getSP(), 0xFF);
+    EXPECT_CALL(*memoryMapper, read(0x1FF, ADDRESS_SPACE::CPU)).WillOnce(Return(0x12));
+    cpu.clkstep();
+    EXPECT_EQ(getPC(), 0x1234);
+}
+
+
 

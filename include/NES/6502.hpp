@@ -165,6 +165,7 @@ class CPU6502{
         void pushStatus();
         void pushStatusAndSetI();
         void pullStatus();
+        void pullStatusAndIncrementSP();
         void pushPCH();
         void pullPCH();
         void pushPCL();
@@ -1773,6 +1774,18 @@ class CPU6502{
                 &CPU6502::pushStatusAndSetI,
                 &CPU6502::fetchIRQL,
                 &CPU6502::fetchIRQH,
+            }
+        };
+
+        Instruction RTI = {
+            .name = "Return from interrupt",
+            .mnemonic = "RTI",
+            .cycles = std::vector<MicroOp>{
+                &CPU6502::nop,
+                &CPU6502::incrementSP,
+                &CPU6502::pullStatusAndIncrementSP,
+                &CPU6502::pullPCL,
+                &CPU6502::pullPCH
             }
         };
 };
